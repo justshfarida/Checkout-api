@@ -2,67 +2,180 @@ package store
 
 import (
 	"checkout-api/models"
+	"slices"
+	"time"
 )
+
+// Implement in-memory Store with NewStore() constructor.
+// Seed data: Laptop (120000), Mouse (2500), Keyboard (8000) — prices in cents.
+// Methods: GetItems(), GetItem(id int), CreateOrder(userID int, items []models.LineItem, total int, status string)
 
 // Store is an in-memory store for items and orders.
 type Store struct {
-	items       map[int]*models.Item
-	orders      map[int]*models.Order
+	Items       map[int]*models.Item
+	Orders      map[int]*models.Order
 	nextOrderID int
-	carts       map[int]*models.Cart
+	Carts       map[int]*models.Cart
+	Idempotency map[string]*models.IdempotencyRecord
 }
 
 // NewStore creates a Store pre-loaded with seed data.
 func NewStore() *Store {
-	s := &Store{
-		items:       make(map[int]*models.Item),
-		orders:      make(map[int]*models.Order),
+	store := &Store{
+		Items:       make(map[int]*models.Item),
+		Orders:      make(map[int]*models.Order),
 		nextOrderID: 1,
-		carts:       make(map[int]*models.Cart),
+		Carts:       make(map[int]*models.Cart),
+		Idempotency: make(map[string]*models.IdempotencyRecord),
 	}
 
-	s.items[1] = &models.Item{ID: 1, Name: "Laptop", Description: "A fast laptop", Price: 120000, Stock: 10}
-	s.items[2] = &models.Item{ID: 2, Name: "Mouse", Description: "Wireless mouse", Price: 2500, Stock: 50}
-	s.items[3] = &models.Item{ID: 3, Name: "Keyboard", Description: "Mechanical keyboard", Price: 8000, Stock: 30}
+	store.Items[1] = &models.Item{ID: 1, Name: "Laptop", Description: "A fast laptop", Price: 120000, Stock: 10, Category: "electronics"}
+	store.Items[2] = &models.Item{ID: 2, Name: "Mouse", Description: "Wireless mouse", Price: 2500, Stock: 50, Category: "electronics"}
+	store.Items[3] = &models.Item{ID: 3, Name: "Keyboard", Description: "Mechanical keyboard", Price: 8000, Stock: 30, Category: "electronics"}
+	store.Items[4] = &models.Item{ID: 4, Name: "Book", Description: "Mechanical keyboard", Price: 20, Stock: 10, Category: "education"}
 
-	return s
+	store.Orders[1] = &models.Order{
+		ID:     1,
+		UserID: 1,
+		Items: []models.LineItem{
+			{ItemID: 1, Quantity: 3, Price: 2500},
+			{ItemID: 2, Quantity: 1, Price: 1000},
+		},
+		TotalPrice: 8500,
+		Status:     "active",
+	}
+	store.Orders[2] = &models.Order{
+		ID:     2,
+		UserID: 2,
+		Items: []models.LineItem{
+			{ItemID: 1, Quantity: 2, Price: 500},
+			{ItemID: 2, Quantity: 5, Price: 1000},
+		},
+		TotalPrice: 6000,
+		Status:     "active",
+	}
+	store.Orders[3] = &models.Order{
+		ID:     3,
+		UserID: 2,
+		Items: []models.LineItem{
+			{ItemID: 1, Quantity: 10, Price: 600},
+			{ItemID: 2, Quantity: 2, Price: 4000},
+		},
+		TotalPrice: 14000,
+		Status:     "active",
+	}
+	
+	return store
 }
 
-// GetItems returns all available items.
-func (s *Store) GetItems() []*models.Item {
-	items := make([]*models.Item, 0, len(s.items))
-	for _, item := range s.items {
+func (store *Store) GetItems() []*models.Item {
+	items := make([]*models.Item, 0, len(store.Items))
+	for _, item := range store.Items {
 		items = append(items, item)
 	}
 	return items
 }
 
-// GetItem returns a single item by ID, or nil if not found.
-func (s *Store) GetItem(id int) *models.Item {
-	return s.items[id]
+func (store *Store) CreateUserCart(cart *models.Cart) {
+	store.Carts[cart.UserID] = cart
 }
 
-// CreateOrder creates a new order and returns it.
-func (s *Store) CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order {
-	order := &models.Order{
-		ID:     s.nextOrderID,
-		UserID: userID,
-		Items:  items,
-		Total:  total,
-		Status: status,
-	}
-	s.orders[order.ID] = order
-	s.nextOrderID++
-	return order
-}
-
-func (s *Store) CreateUserCart(cart *models.Cart) {
-	s.carts[cart.UserID] = cart
-}
-
-func (s *Store) GetUserCart(userID int) *models.Cart {
-	if c, ok := s.carts[userID]; ok {
+func (store *Store) GetUserCart(userID int) *models.Cart {
+	if c, ok := store.Carts[userID]; ok {
 		return c
 	}
 	return nil
+}
+
+// ----- TASKS -----
+
+// LECTURE 1 - TASK 1
+func (store *Store) CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order {
+	order := &models.Order{
+		ID:         store.nextOrderID,
+		UserID:     userID,
+		Items:      items,
+		TotalPrice: total,
+		Status:     status,
+	}
+	store.Orders[order.ID] = order
+	store.nextOrderID++
+	return order
+}
+
+// LECTURE 1 - TASK 1
+func (store *Store) GetItem(id int) *models.Item {
+	return store.Items[id]
+}
+
+// LECTURE 1 - TASK 2
+func (store *Store) GetOrdersByUserID(userID int) []*models.Order {
+	orders := make([]*models.Order, 0, len(store.Orders))
+	for _, order := range store.Orders {
+		if order.UserID == userID {
+			orders = append(orders, order)
+		}
+	}
+	return orders
+}
+
+// LECTURE 2 - TASK 1
+func (store *Store) UpdateItemQuantity(userID int, itemID int, quantity int) *models.Cart {
+	cart, ok := store.Carts[userID]
+	if !ok {
+		return nil
+	}
+
+	for i, item := range cart.Items {
+		if item.ItemID == itemID {
+			cart.Items[i].Quantity = quantity
+			return cart
+		}
+	}
+	return nil
+}
+
+// LECTURE 2 - TASK 2
+func (store *Store) DeleteItem(userID int, itemID int) (*models.Cart, bool, bool) {
+	cart, ok := store.Carts[userID]
+	if !ok {
+		return nil, false, false
+	}
+	for i, item := range cart.Items {
+		if item.ItemID == itemID {
+			cart.Items = slices.Delete(cart.Items, i, i+1)
+			if len(cart.Items) == 0 {
+				delete(store.Carts, userID)
+				return nil, true, true
+			}
+			return cart, false, true
+		}
+	}
+	return nil, false, false
+}
+
+// LECTURE 2 - TASK 3 AND OPTIONAL
+func (store *Store) GetIdempotencyRecord(key string) *models.IdempotencyRecord {
+	record, ok := store.Idempotency[key]
+	if !ok {
+		return nil
+	}
+	if time.Since(record.CreatedAt) > 30*time.Minute {
+		delete(store.Idempotency, key)
+		return nil
+	}
+	return record
+}
+
+func (store *Store) SaveIdempotencyRecord(key, requestHash string, statusCode int, body any) {
+	store.Idempotency[key] = &models.IdempotencyRecord{
+		StatusCode:  statusCode,
+		Body:        body,
+		RequestHash: requestHash,
+		CreatedAt:   time.Now(),
+	}
+}
+
+func (store *Store) DeleteCart(userID int) {
+	delete(store.Carts, userID)
 }

@@ -50,7 +50,7 @@ func TestGetItems(t *testing.T) {
 	}
 }
 
-func TestGetItemByID(t *testing.T) {
+func TestGetItem(t *testing.T) {
 	s := store.NewStore()
 	h := NewHandler(s)
 
@@ -93,7 +93,7 @@ func TestGetItemByID(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			w := httptest.NewRecorder()
 
-			h.GetItemByID(w, req)
+			h.GetItem(w, req)
 
 			if w.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", w.Code, tt.wantStatus)
