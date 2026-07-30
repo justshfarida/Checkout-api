@@ -9,6 +9,7 @@ type Item struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Category    string `json:"category"`
 	Price       int    `json:"price"`
 	StockSize   int    `json:"stock_size"`
 }
@@ -20,7 +21,15 @@ type LineItem struct {
 type Order struct {
 	ID         int        `json:"id"`
 	UserID     int        `json:"user_id"`
-	Items      []LineItem `json:"line_items"`
+	Items      []LineItem `json:"items"`
 	TotalPrice int        `json:"total_price"`
 	Status     string     `json:"status"`
+}
+type CreateOrderRequest struct {
+	UserID int        `json:"user_id"`
+	Items  []LineItem `json:"items"`
+}
+type ItemFilter struct {
+	Category string // Defaults to ""
+	SortBy   string // Defaults to ""
 }
