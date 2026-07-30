@@ -135,6 +135,7 @@ func (handler *Handler) GetOrdersByUserID(writer http.ResponseWriter, request *h
 }
 func writeJson(writer http.ResponseWriter, statusCode int, data any) {
 	writer.Header().Add("Content-Type", "application/json")
+	writer.Header().Add("Cache-Control", "private")
 	writer.WriteHeader(statusCode)
 	json.NewEncoder(writer).Encode(data)
 }
