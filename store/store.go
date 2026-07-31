@@ -2,6 +2,7 @@ package store
 
 import (
 	"checkout-api/models"
+	"fmt"
 )
 
 // Store is an in-memory store for items and orders.
@@ -65,4 +66,58 @@ func (s *Store) GetUserCart(userID int) *models.Cart {
 		return c
 	}
 	return nil
+}
+func (s *Store) DeleteUserCart(userID int) {
+	delete(s.carts, userID)
+}
+
+func (s *Store) RemoveItemFromCart(userID int, itemID int) (*models.Cart, bool, error) {
+	cart, ok := s.carts[userID]
+	if !ok {
+		return nil, false, fmt.Errorf("cart not found")
+	}
+
+	itemIndex := -1
+	for i, item := range cart.Items {
+		if item.ItemID == itemID {
+			itemIndex = i
+			break
+		}
+	}
+
+	if itemIndex == -1 {
+		return nil, false, fmt.Errorf("item not found in cart")
+	}
+
+	// Remove item from slice
+	cart.Items = append(cart.Items[:itemIndex], cart.Items[itemIndex+1:]...)
+
+	// If cart is empty, delete it entirely
+	if len(cart.Items) == 0 {
+		delete(s.carts, userID)
+		return nil, true, nil
+	}
+
+	return cart, false, nil
+}
+func (s *Store) UpdateQuantityOfItem(userID int, itemID int, quantity int) (*models.Cart, error) {
+	cart, ok := s.carts[userID]
+	if !ok {
+		return nil, fmt.Errorf("cart not found")
+	}
+
+	itemFound := false
+	for i, item := range cart.Items {
+		if item.ItemID == itemID {
+			cart.Items[i].Quantity = quantity
+			itemFound = true
+			break
+		}
+	}
+
+	if !itemFound {
+		return nil, fmt.Errorf("item not found in cart")
+	}
+
+	return cart, nil
 }

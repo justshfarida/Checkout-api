@@ -18,6 +18,9 @@ type ItemStore interface {
 	CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order
 	CreateUserCart(cart *models.Cart)
 	GetUserCart(userID int) *models.Cart
+	UpdateQuantityOfItem(userID int, itemID int, quantity int) (*models.Cart, error)
+	RemoveItemFromCart(userID int, itemID int) (*models.Cart, bool, error)
+	DeleteUserCart(userID int)
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -239,4 +242,85 @@ func (h *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, cart)
+}
+
+type UpdateItemQuantityRequest struct {
+	UserID   int `json:"user_id"`
+	Quantity int `json:"quantity"`
+}
+
+func (h *Handler) UpdateQuantityOfItem(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPatch {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	idStr := strings.TrimPrefix(r.URL.Path, "/user/cart/items/")
+	fmt.Println(r.URL.Path)
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid item ID", http.StatusBadRequest)
+		return
+	}
+
+	var req UpdateItemQuantityRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if req.Quantity <= 0 {
+		http.Error(w, "quantity must be greater than 0", http.StatusBadRequest)
+		return
+	}
+
+	updatedCart, err := h.store.UpdateQuantityOfItem(req.UserID, id, req.Quantity)
+	if err != nil {
+		if err.Error() == "cart not found" || err.Error() == "item not found in cart" {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updatedCart)
+}
+
+type RemoveItemFromCartRequest struct {
+	UserID int `json:"user_id"`
+}
+
+// DELETE /user/cart/items/{id}
+func (h *Handler) RemoveItemFromCart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	idStr := strings.TrimPrefix(r.URL.Path, "/user/cart/items/")
+	itemID, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid item ID", http.StatusBadRequest)
+		return
+	}
+
+	var req RemoveItemFromCartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	_, _, err = h.store.RemoveItemFromCart(req.UserID, itemID)
+	if err != nil {
+		if err.Error() == "cart not found" || err.Error() == "item not found in cart" {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// 204 No Content output
+	w.WriteHeader(http.StatusNoContent)
 }
