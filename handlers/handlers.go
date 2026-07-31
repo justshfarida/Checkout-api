@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"checkout-api/models"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-
-	"checkout-api/models"
 )
 
 // ItemStore defines the data operations the handler needs.
@@ -25,12 +28,22 @@ type ItemStore interface {
 
 // Handler holds dependencies for HTTP handlers.
 type Handler struct {
-	store ItemStore
+	store            ItemStore
+	idempotencyStore map[string]IdempotencyRecord
+	idempotencyMutex sync.Mutex
+}
+type IdempotencyRecord struct {
+	StatusCode   int
+	ResponseBody []byte
+	CreatedAt    time.Time
+	RequestHash  string //Store the SHA-256 hash of the request body
 }
 
 // NewHandler creates a Handler with the given store.
 func NewHandler(s ItemStore) *Handler {
-	return &Handler{store: s}
+	return &Handler{store: s,
+		idempotencyStore: make(map[string]IdempotencyRecord),
+	}
 }
 
 // CreateOrderRequest is the payload for POST /orders.
@@ -96,60 +109,160 @@ func (h *Handler) GetItemByID(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, item)
 }
-
-// CreateOrder handles POST /orders — creates an order with mock payment.
 func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	var req CreateOrderRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if idempotencyKey == "" {
+		http.Error(w, "Idempotency-Key header is required", http.StatusBadRequest)
 		return
 	}
+	// 1. Read request body bytes & calculate SHA-256 hash
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+	hash := sha256.Sum256(bodyBytes)
+	currentHash := hex.EncodeToString(hash[:])
 
-	// Validate and calculate total
-	total := 0
-	orderItems := make([]models.LineItem, 0, len(req.Items))
-	for _, item := range req.Items {
-		storeItem := h.store.GetItem(item.ItemID)
-		if storeItem == nil {
-			http.Error(w, fmt.Sprintf("Item %d not found", item.ItemID), http.StatusBadRequest)
+	// 2. Check cached idempotency response
+	h.idempotencyMutex.Lock()
+	if record, exists := h.idempotencyStore[idempotencyKey]; exists {
+		// Valid for 24h
+		if time.Since(record.CreatedAt) < 24*time.Hour {
+			h.idempotencyMutex.Unlock()
+			if record.RequestHash != currentHash {
+				http.Error(w, "idempotency key reused with a different request payload", http.StatusConflict)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(record.StatusCode)
+			w.Write(record.ResponseBody)
 			return
 		}
-		itemTotal := storeItem.Price * item.Quantity
-		total += itemTotal
-		orderItems = append(orderItems, models.LineItem{
-			ItemID:   item.ItemID,
-			Quantity: item.Quantity,
-			Price:    storeItem.Price,
-		})
+	}
+	h.idempotencyMutex.Unlock()
+
+	// 3. Process new request
+	var req CreateOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
 	}
 
-	// Process payment (mock)
-	paymentResult := mockProcessPayment(total)
+	cart := h.store.GetUserCart(req.UserID)
+	if cart == nil || len(cart.Items) == 0 {
+		http.Error(w, "cart is empty or does not exist", http.StatusBadRequest)
+		return
+	}
 
+	// Calculate total amount
+	total := 0
+	for _, item := range cart.Items {
+		total += item.Price * item.Quantity
+	}
+
+	// Process Payment
+	paymentResult := mockProcessPayment(total)
 	status := "paid"
 	if !paymentResult.Success {
 		status = "failed"
 	}
 
-	order := h.store.CreateOrder(req.UserID, orderItems, total, status)
+	order := h.store.CreateOrder(req.UserID, cart.Items, total, status)
+
+	var statusCode int
+	var respPayload any
 
 	if paymentResult.Success {
-		writeJSON(w, http.StatusCreated, map[string]any{
+		statusCode = http.StatusCreated
+		respPayload = map[string]any{
 			"order":   order,
 			"payment": paymentResult,
-		})
+		}
+		// Delete cart on success
+		h.store.DeleteUserCart(req.UserID)
 	} else {
-		writeJSON(w, http.StatusPaymentRequired, map[string]any{
+		statusCode = http.StatusPaymentRequired
+		respPayload = map[string]any{
 			"order":   order,
 			"payment": paymentResult,
-		})
+		}
 	}
+
+	respBytes, _ := json.Marshal(respPayload) //ocnvert to json
+
+	// Save into Idempotency Store
+	h.idempotencyMutex.Lock()
+	h.idempotencyStore[idempotencyKey] = IdempotencyRecord{
+		StatusCode:   statusCode,
+		ResponseBody: respBytes,
+		RequestHash:  currentHash,
+		CreatedAt:    time.Now(),
+	}
+	h.idempotencyMutex.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	w.Write(respBytes)
 }
+
+// CreateOrder handles POST /orders — creates an order with mock payment.
+// func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
+// 	if r.Method != http.MethodPost {
+// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// 		return
+// 	}
+
+// 	var req CreateOrderRequest
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+// 		return
+// 	}
+
+// 	// Validate and calculate total
+// 	total := 0
+// 	orderItems := make([]models.LineItem, 0, len(req.Items))
+// 	for _, item := range req.Items {
+// 		storeItem := h.store.GetItem(item.ItemID)
+// 		if storeItem == nil {
+// 			http.Error(w, fmt.Sprintf("Item %d not found", item.ItemID), http.StatusBadRequest)
+// 			return
+// 		}
+// 		itemTotal := storeItem.Price * item.Quantity
+// 		total += itemTotal
+// 		orderItems = append(orderItems, models.LineItem{
+// 			ItemID:   item.ItemID,
+// 			Quantity: item.Quantity,
+// 			Price:    storeItem.Price,
+// 		})
+// 	}
+
+// 	// Process payment (mock)
+// 	paymentResult := mockProcessPayment(total)
+
+// 	status := "paid"
+// 	if !paymentResult.Success {
+// 		status = "failed"
+// 	}
+
+// 	order := h.store.CreateOrder(req.UserID, orderItems, total, status)
+
+// 	if paymentResult.Success {
+// 		writeJSON(w, http.StatusCreated, map[string]any{
+// 			"order":   order,
+// 			"payment": paymentResult,
+// 		})
+// 	} else {
+// 		writeJSON(w, http.StatusPaymentRequired, map[string]any{
+// 			"order":   order,
+// 			"payment": paymentResult,
+// 		})
+// 	}
+// }
 
 // writeJSON encodes v as JSON and writes it to the response.
 func writeJSON(w http.ResponseWriter, status int, v any) {
