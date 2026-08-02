@@ -114,30 +114,34 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
 	idempotencyKey := r.Header.Get("Idempotency-Key")
 	if idempotencyKey == "" {
 		http.Error(w, "Idempotency-Key header is required", http.StatusBadRequest)
 		return
 	}
-	// 1. Read request body bytes & calculate SHA-256 hash
+
+	// Read request body and calculate SHA-256 hash
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
+
 	hash := sha256.Sum256(bodyBytes)
 	currentHash := hex.EncodeToString(hash[:])
 
-	// 2. Check cached idempotency response
+	// Check cached idempotency response
 	h.idempotencyMutex.Lock()
 	if record, exists := h.idempotencyStore[idempotencyKey]; exists {
-		// Valid for 24h
 		if time.Since(record.CreatedAt) < 24*time.Hour {
 			h.idempotencyMutex.Unlock()
+
 			if record.RequestHash != currentHash {
 				http.Error(w, "idempotency key reused with a different request payload", http.StatusConflict)
 				return
 			}
+
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(record.StatusCode)
 			w.Write(record.ResponseBody)
@@ -146,9 +150,9 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	h.idempotencyMutex.Unlock()
 
-	// 3. Process new request
+	// Decode request from the bytes we already read
 	var req CreateOrderRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -159,14 +163,15 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Calculate total amount
+	// Calculate total
 	total := 0
 	for _, item := range cart.Items {
 		total += item.Price * item.Quantity
 	}
 
-	// Process Payment
+	// Process payment
 	paymentResult := mockProcessPayment(total)
+
 	status := "paid"
 	if !paymentResult.Success {
 		status = "failed"
@@ -174,8 +179,10 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	order := h.store.CreateOrder(req.UserID, cart.Items, total, status)
 
-	var statusCode int
-	var respPayload any
+	var (
+		statusCode  int
+		respPayload any
+	)
 
 	if paymentResult.Success {
 		statusCode = http.StatusCreated
@@ -183,7 +190,8 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			"order":   order,
 			"payment": paymentResult,
 		}
-		// Delete cart on success
+
+		// Delete cart after successful checkout
 		h.store.DeleteUserCart(req.UserID)
 	} else {
 		statusCode = http.StatusPaymentRequired
@@ -193,9 +201,9 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	respBytes, _ := json.Marshal(respPayload) //ocnvert to json
+	respBytes, _ := json.Marshal(respPayload)
 
-	// Save into Idempotency Store
+	// Store response for idempotency
 	h.idempotencyMutex.Lock()
 	h.idempotencyStore[idempotencyKey] = IdempotencyRecord{
 		StatusCode:   statusCode,

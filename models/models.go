@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // Item represents a product available for purchase.
 type Item struct {
 	ID          int    `json:"id"`
@@ -26,7 +28,8 @@ type Order struct {
 }
 
 type Cart struct {
-	ID     string     `json:"id"`
-	UserID int        `json:"user_id"`
-	Items  []LineItem `json:"items"`
+	ID          string     `json:"id"`
+	UserID      int        `json:"user_id"`
+	Items       []LineItem `json:"items"`
+	LastTouched time.Time  `json:"-"` // Hidden from JSON output
 }

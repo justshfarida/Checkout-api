@@ -3,7 +3,10 @@ package store
 import (
 	"checkout-api/models"
 	"fmt"
+	"time"
 )
+
+const CartTTL = 30 * time.Minute
 
 // Store is an in-memory store for items and orders.
 type Store struct {
@@ -58,13 +61,22 @@ func (s *Store) CreateOrder(userID int, items []models.LineItem, total int, stat
 }
 
 func (s *Store) CreateUserCart(cart *models.Cart) {
+	cart.LastTouched = time.Now()
 	s.carts[cart.UserID] = cart
 }
 
 func (s *Store) GetUserCart(userID int) *models.Cart {
-	if c, ok := s.carts[userID]; ok {
-		return c
+	cart, ok := s.carts[userID]
+	if !ok {
+		return nil
 	}
+	if time.Since(cart.LastTouched) > CartTTL {
+		delete(s.carts, userID) // Expire and remove from memory
+		return nil
+	}
+
+	// 2. Refresh inactivity timer on active read
+	cart.LastTouched = time.Now()
 	return nil
 }
 func (s *Store) DeleteUserCart(userID int) {
@@ -97,7 +109,7 @@ func (s *Store) RemoveItemFromCart(userID int, itemID int) (*models.Cart, bool, 
 		delete(s.carts, userID)
 		return nil, true, nil
 	}
-
+	cart.LastTouched = time.Now()
 	return cart, false, nil
 }
 func (s *Store) UpdateQuantityOfItem(userID int, itemID int, quantity int) (*models.Cart, error) {
@@ -118,6 +130,6 @@ func (s *Store) UpdateQuantityOfItem(userID int, itemID int, quantity int) (*mod
 	if !itemFound {
 		return nil, fmt.Errorf("item not found in cart")
 	}
-
+	cart.LastTouched = time.Now()
 	return cart, nil
 }
