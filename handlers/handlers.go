@@ -300,7 +300,7 @@ func (handler *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	handler.store.DeleteCart(req.UserID)
 
 	responseBody := map[string]any{"order": order, "payment": paymentResult}
-	handler.store.SaveIdempotencyRecord(idempotencyKey, currentHash, http.StatusPaymentRequired, paymentResult)
+	handler.store.SaveIdempotencyRecord(idempotencyKey, currentHash, http.StatusCreated, responseBody)
 	writeJSON(w, http.StatusCreated, responseBody)
 }
 
@@ -358,6 +358,7 @@ func (handler *Handler) UpdateItemQuantity(writer http.ResponseWriter, request *
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(writer, http.StatusText(400), http.StatusBadRequest)
+		return
 	}
 	var req updateQuantityRequest
 	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
