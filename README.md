@@ -69,6 +69,40 @@ checkout-api/
 └── handlers/handlers_test.go # Table-driven handler tests
 ```
 
+## Useful Commands
+
+### Create a migration
+
+```bash
+migrate create -ext sql -dir db/migrations -seq create_items_table
+```
+
+### Run migrations
+
+```bash
+go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+migrate -database "$DATABASE_URL" -path db/migrations up
+```
+
+### Roll back one migration
+
+```bash
+migrate -database "$DATABASE_URL" -path db/migrations down 1
+```
+
+### Check PostgreSQL
+
+```bash
+psql -U postgres -d xsolla_ecommerce
+```
+
+### Seed Data to PostgreSQL
+
+```bash
+psql xsolla_ecommerce < db/seeds/items.sql
+```
+
 ## License
 
 Internal — Xsolla School use only.
