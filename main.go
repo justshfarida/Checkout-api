@@ -29,7 +29,6 @@ func main() {
 	http.HandleFunc("GET /users/{user_id}/orders", handler.GetOrdersByUserID)
 	http.HandleFunc("PATCH /user/cart/items/{id}", handler.UpdateItemQuantity)
 	http.HandleFunc("DELETE /user/cart/items/{id}", handler.DeleteItem)
-	http.HandleFunc("GET /users", handler.GetItems)
-	// http.HandleFunc("POST /user/orders", handler.PLaceOrder)
+
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

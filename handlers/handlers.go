@@ -28,7 +28,6 @@ type ItemStore interface {
 	SaveIdempotencyRecord(key, requestHash string, statusCode int, body any)
 	GetIdempotencyRecord(key string) *models.IdempotencyRecord
 	DeleteCart(userID int)
-	//PlaceOrder(userID int, items []models.LineItem, total int, status string) *models.Order
 }
 
 type createOrderItem struct {
@@ -60,7 +59,6 @@ func mockProcessPayment(amount int) PaymentResult {
 	if amount > 0 && amount < 1000000 {
 		return PaymentResult{
 			Success: true,
-			// TransactionID: fmt.Sprintf("txn_%d", time.Now().UnixNano()),
 		}
 	}
 	return PaymentResult{
@@ -341,10 +339,6 @@ func (handler *Handler) GetItems(writer http.ResponseWriter, request *http.Reque
 	writeJSON(writer, http.StatusOK, items)
 }
 
-/* func mockChargePayment(amountCents int) bool {
-	return rand.Intn(10) < 6
-}
-*/
 // -------------------------------------------------------------------------
 
 // LECTURE 2 - TASK 1
