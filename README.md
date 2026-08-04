@@ -76,9 +76,8 @@ Internal — Xsolla School use only.
 ## Week 1 - Curl examples:
 
 ### 1) POST cart
+```bash
 curl -i -X POST http://localhost:8080/user/cart \
-
-```
   -H "Content-Type: application/json" \
   -d '{
     "user_id": 1,
@@ -91,8 +90,8 @@ curl -i -X POST http://localhost:8080/user/cart \
 
 
 ### 2) Update item quantity in a cart (PATCH)
+```bash
 curl -i -X PATCH http://localhost:8080/user/cart/items/{id} \
-``` bash
   -H "Content-Type: application/json" \
   -d '{
     "user_id": 1,
