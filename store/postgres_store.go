@@ -69,7 +69,84 @@ func (s *PostgresStore) GetItem(ctx context.Context, id int) (*models.Item, erro
 	}
 	return &item, nil
 }
+func (s *PostgresStore) RotateRefreshToken(
+	ctx context.Context,
+	oldTokenHash []byte,
+	newTokenHash []byte,
+	newExpiresAt time.Time,
+) (int, error) {
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"failed to begin refresh-token transaction: %w",
+			err,
+		)
+	}
+	defer tx.Rollback(ctx)
 
+	q := s.WithTx(tx)
+
+	var userID int
+	var oldExpiresAt time.Time
+
+	err = q.GetActiveRefreshTokenForUpdate(
+		ctx,
+		oldTokenHash,
+	).Scan(
+		&userID,
+		&oldExpiresAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, fmt.Errorf("invalid or inactive refresh token")
+		}
+
+		return 0, fmt.Errorf(
+			"failed to retrieve refresh token: %w",
+			err,
+		)
+	}
+
+	if time.Now().After(oldExpiresAt) {
+		return 0, fmt.Errorf("refresh token has expired")
+	}
+
+	commandTag, err := q.DeactivateRefreshToken(
+		ctx,
+		oldTokenHash,
+	)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"failed to deactivate refresh token: %w",
+			err,
+		)
+	}
+
+	if commandTag.RowsAffected() != 1 {
+		return 0, fmt.Errorf("failed to deactivate refresh token")
+	}
+
+	if _, err := q.InsertRefreshToken(
+		ctx,
+		userID,
+		newTokenHash,
+		newExpiresAt,
+	); err != nil {
+		return 0, fmt.Errorf(
+			"failed to save new refresh token: %w",
+			err,
+		)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf(
+			"failed to commit refresh-token rotation: %w",
+			err,
+		)
+	}
+
+	return userID, nil
+}
 func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error) {
 	tx, err := s.conn.Begin(ctx)
 	if err != nil {

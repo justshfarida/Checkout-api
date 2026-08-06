@@ -98,3 +98,30 @@ func (q *Query) InsertRefreshToken(
 		expiresAt,
 	)
 }
+func (q *Query) GetActiveRefreshTokenForUpdate(
+	ctx context.Context,
+	tokenHash []byte,
+) pgx.Row {
+	return q.DBTX.QueryRow(
+		ctx,
+		`SELECT user_id, expires_at
+		 FROM refresh_tokens
+		 WHERE token_hash = $1
+		   AND is_active = TRUE
+		 FOR UPDATE`,
+		tokenHash,
+	)
+}
+
+func (q *Query) DeactivateRefreshToken(
+	ctx context.Context,
+	tokenHash []byte,
+) (pgconn.CommandTag, error) {
+	return q.DBTX.Exec(
+		ctx,
+		`UPDATE refresh_tokens
+		 SET is_active = FALSE
+		 WHERE token_hash = $1`,
+		tokenHash,
+	)
+}

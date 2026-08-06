@@ -38,6 +38,12 @@ type ItemStore interface {
 		tokenHash []byte,
 		expiresAt time.Time,
 	) error
+	RotateRefreshToken(
+		ctx context.Context,
+		oldTokenHash []byte,
+		newTokenHash []byte,
+		newExpiresAt time.Time,
+	) (int, error)
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -453,6 +459,79 @@ func (h *Handler) IssueJWT(w http.ResponseWriter, r *http.Request) {
 	// generate a new random string (bonus: if you use a CSPRNG to generate a random sequence of bytes) as refresh_token
 	// save new refresh token in db
 	// deactivate old refresh token
+	oldRefreshToken := r.Header.Get("Refresh-Token")
+	if oldRefreshToken == "" {
+		http.Error(
+			w,
+			"Refresh-Token header is required",
+			http.StatusUnauthorized,
+		)
+		return
+	}
+
+	newRefreshToken, err := generateRefreshToken()
+	if err != nil {
+		fmt.Printf(
+			"failed to generate refresh token: %v\n",
+			err,
+		)
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	oldTokenHash := hashRefreshToken(oldRefreshToken)
+	newTokenHash := hashRefreshToken(newRefreshToken)
+	newRefreshExpiresAt := time.Now().Add(30 * 24 * time.Hour)
+
+	userID, err := h.store.RotateRefreshToken(
+		r.Context(),
+		oldTokenHash,
+		newTokenHash,
+		newRefreshExpiresAt,
+	)
+	if err != nil {
+		fmt.Printf(
+			"failed to rotate refresh token: %v\n",
+			err,
+		)
+		http.Error(
+			w,
+			"Invalid or expired refresh token",
+			http.StatusUnauthorized,
+		)
+		return
+	}
+
+	accessExpiresAt := time.Now().Add(15 * time.Minute)
+
+	token := jwt.NewWithClaims(
+		jwt.SigningMethodHS256,
+		jwt.RegisteredClaims{
+			Subject:   strconv.Itoa(userID),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(accessExpiresAt),
+		},
+	)
+
+	signedJWT, err := token.SignedString(h.jwtSecret)
+	if err != nil {
+		fmt.Printf("failed to sign JWT: %v\n", err)
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, AuthResponse{
+		JWT:          signedJWT,
+		RefreshToken: newRefreshToken,
+	})
 
 }
 func generateRefreshToken() (string, error) {
