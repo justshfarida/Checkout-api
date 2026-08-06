@@ -19,7 +19,7 @@ func main() {
 	}
 
 	databaseURL := mustGetEnv("DATABASE_URL")
-	// jwtSecret := mustGetEnv("JWT_SECRET")
+	jwtSecret := mustGetEnv("JWT_SECRET")
 
 	ctx := context.Background()
 
@@ -36,7 +36,7 @@ func main() {
 
 	// s := store.NewInMemStore()
 	postgresStore := store.NewPostgresStore(conn)
-	h := handlers.NewHandler(postgresStore)
+	h := handlers.NewHandler(postgresStore, []byte(jwtSecret))
 
 	// cart
 	http.HandleFunc("GET /user/cart", h.GetUserCart)

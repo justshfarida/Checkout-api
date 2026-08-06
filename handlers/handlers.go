@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5"
-	"golang.org/x/crypto/bcrypt"
 	"net/http"
 	"net/mail"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 
 	"checkout-api/models"
 )
@@ -31,19 +32,19 @@ type ItemStore interface {
 	FindUserByEmail(ctx context.Context, email string) (models.User, error)
 }
 
-var SigningSecret string = "5298365169"
-
 // Handler holds dependencies for HTTP handlers.
 type Handler struct {
 	store            ItemStore
 	idempotencyCache map[string]*IdempotencyRecord
+	jwtSecret        []byte
 }
 
 // NewHandler creates a Handler with the given store.
-func NewHandler(s ItemStore) *Handler {
+func NewHandler(s ItemStore, jwtSecret []byte) *Handler {
 	return &Handler{
 		store:            s,
 		idempotencyCache: make(map[string]*IdempotencyRecord),
+		jwtSecret:        jwtSecret,
 	}
 }
 
@@ -91,7 +92,7 @@ func (h *Handler) UpsertCartItem(w http.ResponseWriter, r *http.Request) {
 		userJWT,
 		&claims,
 		func(t *jwt.Token) (any, error) {
-			return []byte(SigningSecret), nil
+			return []byte(h.jwtSecret), nil
 		},
 		jwt.WithValidMethods([]string{"HS256"}),
 	)
@@ -389,8 +390,8 @@ func (h *Handler) LoginUser(w http.ResponseWriter, r *http.Request) {
 		Subject:   strconv.Itoa(user.ID),
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	})
-
-	signedString, err := token.SignedString([]byte(SigningSecret))
+	//sign kwt with our secret key in env
+	signedString, err := token.SignedString(h.jwtSecret)
 	if err != nil {
 		fmt.Printf("cannot generate signed string %q", err.Error())
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
