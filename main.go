@@ -1,20 +1,29 @@
 package main
 
 import (
+	"checkout-api/handlers"
+	"checkout-api/store"
 	"context"
 	"fmt"
 	"log"
 	"net/http"
-
-	"checkout-api/handlers"
-	"checkout-api/store"
+	"os"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("warning: .env file not found; using system environment variables")
+	}
+
+	databaseURL := mustGetEnv("DATABASE_URL")
+	// jwtSecret := mustGetEnv("JWT_SECRET")
+
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, "postgresql://postgres:postgres@localhost:5432/postgres")
+
+	conn, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
 		panic(err)
 	}
@@ -48,4 +57,11 @@ func main() {
 
 	fmt.Println("Server starting on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+func mustGetEnv(key string) string {
+	value, ok := os.LookupEnv(key)
+	if !ok || value == "" {
+		log.Fatalf("%s is not set", key)
+	}
+	return value
 }
