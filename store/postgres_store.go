@@ -61,11 +61,49 @@ func (s *PostgresStore) GetItem(ctx context.Context, id int) *models.Item {
 	return &item
 }
 
-func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) *models.Order {
-	// TODO: create an order in a transaction
-	// Use a context.Context passed as the first argument from your method
-	// Use transaction with conn.Begin(), conn.Exec()
-	return nil
+func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error) {
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Insert order
+	var orderID int
+	insertOrderQuery := `
+		INSERT INTO orders (user_id, total, status)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`
+	err = tx.QueryRow(ctx, insertOrderQuery, userID, total, status).Scan(&orderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert order: %w", err)
+	}
+
+	// 2. Insert order items
+	insertItemQuery := `
+		INSERT INTO order_items (order_id, item_id, price, quantity)
+		VALUES ($1, $2, $3, $4)
+	`
+	for _, item := range items {
+		_, err := tx.Exec(ctx, insertItemQuery, orderID, item.ItemID, item.Price, item.Quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert order item (item_id %d): %w", item.ItemID, err)
+		}
+	}
+
+	// 3. Commit order creation (Cart is completely untouched here)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return &models.Order{
+		ID:     orderID,
+		UserID: userID,
+		Items:  items,
+		Total:  total,
+		Status: status,
+	}, nil
 }
 
 func (s *PostgresStore) CreateUserCart(ctx context.Context, cart *models.Cart) error {
@@ -96,20 +134,83 @@ func (s *PostgresStore) CreateUserCart(ctx context.Context, cart *models.Cart) e
 	// _, err=tx.Exec(ctx, "INSERT INTO cart_items (cart_id, item_id, quantity, price) VALUES ($1, $2, $3, $4)", cart.ID. )
 }
 
-func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) *models.Cart {
-	// TODO: implement
+func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Cart, error) {
+	query := `
+		SELECT 
+			c.id, 
+			c.user_id, 
+			ci.item_id, 
+			ci.quantity, 
+			ci.price
+		FROM carts c
+		INNER JOIN cart_items ci ON c.id = ci.cart_id
+		WHERE c.user_id = $1
+	`
 
+	rows, err := s.conn.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query cart: %w", err)
+	}
+	defer rows.Close()
+
+	var cart *models.Cart
+
+	for rows.Next() {
+		var (
+			cartID     string
+			cartUserID int
+			item       models.LineItem
+		)
+		err := rows.Scan(&cartID, &cartUserID, &item.ItemID, &item.Quantity, &item.Price)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		if cart == nil {
+			cart = &models.Cart{
+				ID:     cartID,
+				UserID: cartUserID,
+				Items:  make([]models.LineItem, 0),
+			}
+		}
+
+		cart.Items = append(cart.Items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	// Returns nil if 0 rows were found (cart does not exist or was deleted)
+	return cart, nil
+}
+
+func (s *PostgresStore) DeleteUserCart(ctx context.Context, userID int) error {
+	query := `DELETE FROM carts WHERE user_id = $1`
+	_, err := s.conn.Exec(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete cart: %w", err)
+	}
 	return nil
 }
 
-func (s *PostgresStore) DeleteUserCart(ctx context.Context, userID int) {
-	// TODO: implement
-
-}
-
 func (s *PostgresStore) UpdateCartItem(ctx context.Context, userID int, itemID int, quantity int) bool {
-	// TODO: implement
-	return false
+	query := `
+		UPDATE cart_items
+		SET quantity = $3
+		FROM carts
+		WHERE cart_items.cart_id = carts.id
+		  AND carts.user_id = $1
+		  AND cart_items.item_id = $2
+	`
+
+	cmdTag, err := s.conn.Exec(ctx, query, userID, itemID, quantity)
+	if err != nil {
+		fmt.Printf("error updating cart item: %v\n", err)
+		return false
+	}
+
+	return cmdTag.RowsAffected() > 0
 }
 
 func (s *PostgresStore) RemoveCartItem(ctx context.Context, userID int, itemID int) bool {

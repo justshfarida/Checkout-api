@@ -17,10 +17,10 @@ type ItemStore interface {
 	GetItems(ctx context.Context) ([]*models.Item, error)
 	// TODO: refactor all methods to receive an extra context.Context as the first argument and return a second value of error type
 	GetItem(ctx context.Context, id int) *models.Item
-	CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) *models.Order
+	CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error)
 	CreateUserCart(ctx context.Context, cart *models.Cart) error
-	GetUserCart(ctx context.Context, userID int) *models.Cart
-	DeleteUserCart(ctx context.Context, userID int)
+	GetUserCart(ctx context.Context, userID int) (*models.Cart, error)
+	DeleteUserCart(ctx context.Context, userID int) error
 	UpdateCartItem(ctx context.Context, userID int, itemID int, quantity int) bool
 	RemoveCartItem(ctx context.Context, userID int, itemID int) bool
 }
@@ -106,9 +106,7 @@ func mockProcessPayment(amount int) PaymentResult {
 		Error:   "Payment declined",
 	}
 }
-
 func (h *Handler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http.Request) {
-
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -120,7 +118,13 @@ func (h *Handler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if h.store.GetUserCart(r.Context(), req.UserID) != nil {
+	cart, err := h.store.GetUserCart(r.Context(), req.UserID)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if cart != nil {
 		http.Error(w, "cart already exists", http.StatusConflict)
 		return
 	}
@@ -149,13 +153,20 @@ func (h *Handler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http.Reque
 		UserID: req.UserID,
 		Items:  orderItems,
 	}
+	if err := h.store.CreateUserCart(r.Context(), userCart); err != nil {
+		http.Error(w, "failed to create user cart", http.StatusInternalServerError)
+		return
+	}
 
-	h.store.CreateUserCart(r.Context(), userCart)
 	writeJSON(w, http.StatusCreated, userCart)
-
 }
 
 func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPatch {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	pathParts := strings.Split(r.URL.Path, "/")
 	if len(pathParts) < 5 {
 		http.Error(w, "invalid path", http.StatusBadRequest)
@@ -179,12 +190,20 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.store.UpdateCartItem(r.Context(), req.UserID, itemID, req.Quantity) {
-		writeJSON(w, http.StatusOK, map[string]string{"message": "item not found in cart or cart does not exist for this user"})
+	// Update item quantity in store
+	updated := h.store.UpdateCartItem(r.Context(), req.UserID, itemID, req.Quantity)
+	if !updated {
+		http.Error(w, "item not found in cart or cart does not exist", http.StatusNotFound)
 		return
 	}
 
-	cart := h.store.GetUserCart(r.Context(), req.UserID)
+	// Retrieve updated cart state
+	cart, err := h.store.GetUserCart(r.Context(), req.UserID)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, cart)
 }
 
@@ -212,7 +231,7 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cart := h.store.GetUserCart(r.Context(), req.UserID)
+	cart, _ := h.store.GetUserCart(r.Context(), req.UserID)
 	if cart != nil && len(cart.Items) == 0 {
 		h.store.DeleteUserCart(r.Context(), req.UserID)
 	}
@@ -238,7 +257,7 @@ func (h *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cart := h.store.GetUserCart(r.Context(), userID)
+	cart, _ := h.store.GetUserCart(r.Context(), userID)
 	if cart == nil {
 		emptyCart := &models.Cart{
 			ID:     "",
@@ -280,11 +299,18 @@ func (h *Handler) CreateOrderFromCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cart := h.store.GetUserCart(r.Context(), req.UserID)
-	if cart == nil {
-		writeJSON(w, http.StatusOK, map[string]string{"message": "no cart exists for this user"})
+	cart, err := h.store.GetUserCart(r.Context(), req.UserID)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	if cart == nil {
+		http.Error(w, "cart not found", http.StatusNotFound)
+		return
+	}
+
+	// Proceed to create order with cart.Items and cart.Total...
 
 	if len(cart.Items) == 0 {
 		http.Error(w, "cart is empty", http.StatusBadRequest)
@@ -303,10 +329,14 @@ func (h *Handler) CreateOrderFromCart(w http.ResponseWriter, r *http.Request) {
 		status = "failed"
 	}
 
-	order := h.store.CreateOrder(r.Context(), req.UserID, cart.Items, total, status)
+	order, err := h.store.CreateOrder(r.Context(), req.UserID, cart.Items, total, status)
+	if err != nil {
+		http.Error(w, "failed to create order", http.StatusInternalServerError)
+		return
+	}
 
 	if paymentResult.Success {
-		h.store.DeleteUserCart(r.Context(), req.UserID)
+		_ = h.store.DeleteUserCart(r.Context(), req.UserID)
 	}
 
 	responseData := map[string]any{
@@ -413,8 +443,11 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	if !paymentResult.Success {
 		status = "failed"
 	}
-
-	order := h.store.CreateOrder(r.Context(), req.UserID, orderItems, total, status)
+	order, err := h.store.CreateOrder(r.Context(), req.UserID, orderItems, total, status)
+	if err != nil {
+		http.Error(w, "failed to create order", http.StatusInternalServerError)
+		return
+	}
 
 	if paymentResult.Success {
 		writeJSON(w, http.StatusCreated, map[string]any{
