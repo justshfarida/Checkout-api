@@ -55,7 +55,15 @@ func main() {
 
 	http.HandleFunc("/items", h.GetItems)
 	http.HandleFunc("/items/", h.GetItemByID)
+	http.HandleFunc("/signup", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			h.SignUp(w, r)
+		} else {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 
 	fmt.Println("Server starting on :8080")
+
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

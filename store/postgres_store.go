@@ -21,6 +21,21 @@ func NewPostgresStore(conn *pgx.Conn) *PostgresStore {
 	}
 	return s
 }
+func (s *PostgresStore) CreateUser(ctx context.Context, username, email, password string) (int, error) {
+	var id int
+	query := `
+		INSERT INTO users (username, email, password)
+		VALUES ($1, $2, $3)
+		RETURNING id;
+	`
+
+	err := s.conn.QueryRow(ctx, query, username, email, password).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+
+	return id, nil
+}
 
 // GetItems returns all available items.
 func (s *PostgresStore) GetItems(ctx context.Context) ([]*models.Item, error) {

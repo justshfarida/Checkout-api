@@ -23,6 +23,7 @@ type ItemStore interface {
 	DeleteUserCart(ctx context.Context, userID int) error
 	UpdateCartItem(ctx context.Context, userID int, itemID int, quantity int) bool
 	RemoveCartItem(ctx context.Context, userID int, itemID int) bool
+	CreateUser(ctx context.Context, username, email, password string) (int, error)
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -37,6 +38,53 @@ func NewHandler(s ItemStore) *Handler {
 		store:            s,
 		idempotencyCache: make(map[string]*IdempotencyRecord),
 	}
+}
+
+type SignUpRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Email    string `json:"email"`
+}
+
+type UserResponse struct {
+	ID       int    `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+}
+
+func (h *Handler) SignUp(w http.ResponseWriter, r *http.Request) {
+	var req SignUpRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	req.Email = strings.TrimSpace(req.Email)
+	req.Password = strings.TrimSpace(req.Password)
+
+	if req.Username == "" || req.Email == "" || req.Password == "" {
+		http.Error(w, "username, email, and password are required", http.StatusBadRequest)
+		return
+	}
+
+	userID, err := h.store.CreateUser(r.Context(), req.Username, req.Email, req.Password)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "23505") {
+			http.Error(w, "username or email already taken", http.StatusConflict)
+			return
+		}
+		http.Error(w, "failed to create user", http.StatusInternalServerError)
+		return
+	}
+
+	resp := UserResponse{
+		ID:       userID,
+		Username: req.Username,
+		Email:    req.Email,
+	}
+
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // CreateOrderRequest is the payload for POST /orders.

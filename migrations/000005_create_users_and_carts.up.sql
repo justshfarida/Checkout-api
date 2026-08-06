@@ -3,12 +3,13 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(100) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
+    password TEXT NOT NULL, 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Seed a test user so user_id: 1 works out of the box
-INSERT INTO users (id, username, email) 
-VALUES (1, 'Test User', 'test@example.com') 
+INSERT INTO users (id, username, email, password) 
+VALUES (1, 'Test User', 'test@example.com', 'meowmeow') 
 ON CONFLICT (id) DO NOTHING;
 
 -- 2. Create Carts Table
