@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -80,4 +81,20 @@ func (q *Query) InsertUser(ctx context.Context, email string, hash []byte) (pgco
 
 func (q *Query) GetUserByEmail(ctx context.Context, email string) pgx.Row {
 	return q.DBTX.QueryRow(ctx, "select id, email, hash from users where email = $1", email)
+}
+func (q *Query) InsertRefreshToken(
+	ctx context.Context,
+	userID int,
+	tokenHash []byte,
+	expiresAt time.Time,
+) (pgconn.CommandTag, error) {
+	return q.DBTX.Exec(
+		ctx,
+		`INSERT INTO refresh_tokens
+			(user_id, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		userID,
+		tokenHash,
+		expiresAt,
+	)
 }

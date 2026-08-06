@@ -25,32 +25,40 @@ func main() {
 
 	conn, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
-		panic(err)
+		log.Fatalf("failed to connect to database: %v", err)
 	}
+	defer conn.Close(ctx)
 
-	err = conn.Ping(ctx)
-	if err != nil {
-		panic(err)
+	if err := conn.Ping(ctx); err != nil {
+		log.Fatalf("failed to ping database: %v", err)
 	}
-	fmt.Println("successfully connected to db")
 
 	// s := store.NewInMemStore()
 	postgresStore := store.NewPostgresStore(conn)
 	h := handlers.NewHandler(postgresStore, []byte(jwtSecret))
 
 	// cart
-	http.HandleFunc("GET /user/cart", h.GetUserCart)
-	http.HandleFunc("PATCH /user/cart/items/{item_id}", h.UpsertCartItem)
-	http.HandleFunc("DELETE /user/cart/items/{item_id}", h.RemoveCartItem)
+	http.Handle(
+		"GET /user/cart",
+		h.AuthMiddleware(http.HandlerFunc(h.GetUserCart)),
+	)
 
-	// orders
-	http.HandleFunc("POST /orders", h.CreateOrder)
+	http.Handle(
+		"PATCH /user/cart/items/{item_id}",
+		h.AuthMiddleware(http.HandlerFunc(h.UpsertCartItem)),
+	)
 
-	// items
+	http.Handle(
+		"DELETE /user/cart/items/{item_id}",
+		h.AuthMiddleware(http.HandlerFunc(h.RemoveCartItem)),
+	)
+
+	http.Handle(
+		"POST /orders",
+		h.AuthMiddleware(http.HandlerFunc(h.CreateOrder)),
+	)
 	http.HandleFunc("GET /items", h.GetItems)
 	http.HandleFunc("GET /items/{item_id}", h.GetItemByID)
-
-	// users
 	http.HandleFunc("POST /signup", h.CreateUser)
 	http.HandleFunc("POST /login", h.LoginUser)
 	http.HandleFunc("GET /token", h.IssueJWT)

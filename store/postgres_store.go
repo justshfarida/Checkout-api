@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -176,4 +177,22 @@ func (s *PostgresStore) FindUserByEmail(ctx context.Context, email string) (mode
 func (s *PostgresStore) SaveUser(ctx context.Context, email string, hash []byte) error {
 	_, err := s.DB().InsertUser(ctx, email, hash)
 	return err
+}
+func (s *PostgresStore) SaveRefreshToken(
+	ctx context.Context,
+	userID int,
+	tokenHash []byte,
+	expiresAt time.Time,
+) error {
+	_, err := s.DB().InsertRefreshToken(
+		ctx,
+		userID,
+		tokenHash,
+		expiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save refresh token: %w", err)
+	}
+
+	return nil
 }

@@ -8,14 +8,16 @@ import (
 	"net/http"
 	"net/mail"
 	"strconv"
-	"strings"
 	"time"
+
+	"checkout-api/models"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
-
-	"checkout-api/models"
 )
 
 // ItemStore defines the data operations the handler needs.
@@ -30,6 +32,12 @@ type ItemStore interface {
 	RemoveCartItem(ctx context.Context, userID int, itemID int) error
 	SaveUser(ctx context.Context, email string, hash []byte) error
 	FindUserByEmail(ctx context.Context, email string) (models.User, error)
+	SaveRefreshToken(
+		ctx context.Context,
+		userID int,
+		tokenHash []byte,
+		expiresAt time.Time,
+	) error
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -69,42 +77,8 @@ func mockProcessPayment(amount int) PaymentResult {
 }
 
 func (h *Handler) UpsertCartItem(w http.ResponseWriter, r *http.Request) {
-	authorizationHeaderStr := r.Header.Get("Authorization")
-	if authorizationHeaderStr == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	scheme := "bearer "
-	if len(authorizationHeaderStr) < len(scheme) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	userScheme := authorizationHeaderStr[:len(scheme)] // BeArER
-	if !strings.EqualFold(scheme, userScheme) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	userJWT := authorizationHeaderStr[len(scheme):]
-	var claims jwt.RegisteredClaims
-	_, err := jwt.ParseWithClaims(
-		userJWT,
-		&claims,
-		func(t *jwt.Token) (any, error) {
-			return []byte(h.jwtSecret), nil
-		},
-		jwt.WithValidMethods([]string{"HS256"}),
-	)
-	if err != nil {
-		fmt.Printf("failed to parse jwt %q", err.Error())
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	userID, err := strconv.Atoi(claims.Subject)
-	if err != nil {
-		fmt.Printf("failed to parse jwt %q", err.Error())
+	userID, ok := userIDFromContext(r.Context())
+	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -144,15 +118,20 @@ func (h *Handler) UpsertCartItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
-	userIDStr := r.Header.Get("X-User-ID")
-	if userIDStr == "" {
-		http.Error(w, "missing X-User-ID header", http.StatusBadRequest)
-		return
-	}
+	// userIDStr := r.Header.Get("X-User-ID")
+	// if userIDStr == "" {
+	// 	http.Error(w, "missing X-User-ID header", http.StatusBadRequest)
+	// 	return
+	// }
 
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		http.Error(w, "invalid X-User-ID header", http.StatusBadRequest)
+	// userID, err := strconv.Atoi(userIDStr)
+	// if err != nil {
+	// 	http.Error(w, "invalid X-User-ID header", http.StatusBadRequest)
+	// 	return
+	// }
+	userID, ok := userIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -179,15 +158,10 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
-	userIDStr := r.Header.Get("X-User-ID")
-	if userIDStr == "" {
-		http.Error(w, "missing X-User-ID header", http.StatusBadRequest)
-		return
-	}
 
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		http.Error(w, "invalid X-User-ID header", http.StatusBadRequest)
+	userID, ok := userIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -217,15 +191,9 @@ func (h *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
-	userIDStr := r.Header.Get("X-User-ID")
-	if userIDStr == "" {
-		http.Error(w, "missing X-User-ID header", http.StatusBadRequest)
-		return
-	}
-
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		http.Error(w, "invalid X-User-ID header", http.StatusBadRequest)
+	userID, ok := userIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -391,7 +359,7 @@ func (h *Handler) LoginUser(w http.ResponseWriter, r *http.Request) {
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	})
 	//sign kwt with our secret key in env
-	signedString, err := token.SignedString(h.jwtSecret)
+	signedJWT, err := token.SignedString(h.jwtSecret)
 	if err != nil {
 		fmt.Printf("cannot generate signed string %q", err.Error())
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -402,10 +370,38 @@ func (h *Handler) LoginUser(w http.ResponseWriter, r *http.Request) {
 	// TODO: do it yourself
 	// generate a random string(bonus: if you use a CSPRNG to generate a random sequence of bytes)
 	// insert into refresh_tokens (token_value, is_active) values ("sOmERANdomlYGeNERATEDstRing", 1)
+	refreshToken, err := generateRefreshToken()
+	if err != nil {
+		fmt.Printf("cannot generate refresh token: %v\n", err)
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+
+		return
+	}
+	refreshTokenHash := hashRefreshToken(refreshToken)
+	refreshTokenExpiresAt := time.Now().Add(30 * 24 * time.Hour)
+
+	if err := h.store.SaveRefreshToken(
+		r.Context(),
+		user.ID,
+		refreshTokenHash,
+		refreshTokenExpiresAt,
+	); err != nil {
+		fmt.Printf("cannot save refresh token: %v\n", err)
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
 
 	writeJSON(w, http.StatusOK, AuthResponse{
-		JWT:          signedString,
-		RefreshToken: "sOmERANdomlYGeNERATEDstRing",
+		JWT:          signedJWT,
+		RefreshToken: refreshToken,
 	})
 }
 
@@ -458,4 +454,20 @@ func (h *Handler) IssueJWT(w http.ResponseWriter, r *http.Request) {
 	// save new refresh token in db
 	// deactivate old refresh token
 
+}
+func generateRefreshToken() (string, error) {
+	randomBytes := make([]byte, 32)
+
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", fmt.Errorf(
+			"failed to generate refresh token: %w",
+			err,
+		)
+	}
+
+	return base64.RawURLEncoding.EncodeToString(randomBytes), nil
+}
+func hashRefreshToken(token string) []byte {
+	hash := sha256.Sum256([]byte(token))
+	return hash[:]
 }
