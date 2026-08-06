@@ -9,26 +9,37 @@ import (
 	"checkout-api/handlers"
 	"checkout-api/store"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, "postgresql://postgres:mysecretpassword@localhost:5432/postgres?sslmode=disable")
+	// conn, err := pgx.Connect(ctx, )
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// err = conn.Ping(ctx)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// fmt.Println("successfully connected to db")
+	conn, err := pgxpool.New(ctx, "postgresql://postgres:mysecretpassword@localhost:5432/postgres?sslmode=disable")
 	if err != nil {
 		panic(err)
 	}
+	defer conn.Close()
 
-	err = conn.Ping(ctx)
-	if err != nil {
+	if err := conn.Ping(ctx); err != nil {
 		panic(err)
 	}
-	fmt.Println("successfully connected to db")
-
 	// s := store.NewInMemStore()
 	postgresStore := store.NewPostgresStore(conn)
 	h := handlers.NewHandler(postgresStore)
-
+	// fmt.Println("===== WITHOUT LOCK =====")
+	// store.SimulateWithoutLock(postgresStore)
+	fmt.Println("===== WITH LOCK =====")
+	store.SimulateWithLock(postgresStore)
 	http.HandleFunc("/user/cart/items/",
 		func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {

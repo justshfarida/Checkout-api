@@ -24,6 +24,8 @@ type ItemStore interface {
 	UpdateCartItem(ctx context.Context, userID int, itemID int, quantity int) bool
 	RemoveCartItem(ctx context.Context, userID int, itemID int) bool
 	CreateUser(ctx context.Context, username, email, password string) (int, error)
+	BuyItemWithoutLock(ctx context.Context, itemID int) error
+	BuyItemWithLock(ctx context.Context, itemID int) error
 }
 
 // Handler holds dependencies for HTTP handlers.

@@ -6,20 +6,30 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // PostgresStore is an in-memory store for items and orders.
+// type PostgresStore struct {
+// 	conn *pgx.Conn
+// }
+
+// // NewPostgresStore creates a Store pre-loaded with seed data.
+//
+//	func NewPostgresStore(conn *pgx.Conn) *PostgresStore {
+//		s := &PostgresStore{
+//			conn: conn,
+//		}
+//		return s
+//	}
 type PostgresStore struct {
-	conn *pgx.Conn
+	conn *pgxpool.Pool
 }
 
-// NewPostgresStore creates a Store pre-loaded with seed data.
-func NewPostgresStore(conn *pgx.Conn) *PostgresStore {
-	s := &PostgresStore{
+func NewPostgresStore(conn *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{
 		conn: conn,
 	}
-	return s
 }
 func (s *PostgresStore) CreateUser(ctx context.Context, username, email, password string) (int, error) {
 	var id int
@@ -253,4 +263,85 @@ func (s *PostgresStore) RemoveCartItem(ctx context.Context, userID int, itemID i
 
 	// cmdTag.RowsAffected() returns 1 if item was found and deleted, 0 if it wasn't
 	return cmdTag.RowsAffected() > 0
+}
+func (s *PostgresStore) BuyItemWithoutLock(ctx context.Context, itemID int) error {
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var stock int
+
+	err = tx.QueryRow(ctx,
+		`SELECT stock
+		 FROM items
+		 WHERE id=$1`,
+		itemID,
+	).Scan(&stock)
+
+	if err != nil {
+		return err
+	}
+
+	if stock <= 0 {
+		return fmt.Errorf("out of stock")
+	}
+
+	// simulate slow processing
+	//This gives the second goroutine enough time to also read the old value.
+	time.Sleep(2 * time.Second)
+
+	_, err = tx.Exec(ctx,
+		`UPDATE items
+		 SET stock = stock - 1
+		 WHERE id=$1`,
+		itemID,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+func (s *PostgresStore) BuyItemWithLock(ctx context.Context, itemID int) error {
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var stock int
+	// Locks that row until the transaction commits or rolls back.
+	err = tx.QueryRow(ctx,
+		`SELECT stock
+		 FROM items
+		 WHERE id=$1
+		 FOR UPDATE`,
+		itemID,
+	).Scan(&stock)
+
+	if err != nil {
+		return err
+	}
+
+	if stock <= 0 {
+		return fmt.Errorf("out of stock")
+	}
+
+	time.Sleep(2 * time.Second)
+
+	_, err = tx.Exec(ctx,
+		`UPDATE items
+		 SET stock = stock - 1
+		 WHERE id=$1`,
+		itemID,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
