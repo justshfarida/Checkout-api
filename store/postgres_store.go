@@ -49,24 +49,37 @@ func (s *PostgresStore) CreateUser(ctx context.Context, username, email, passwor
 
 // GetItems returns all available items.
 func (s *PostgresStore) GetItems(ctx context.Context) ([]*models.Item, error) {
-	rows, err := s.conn.Query(ctx, "select * from items")
+	rows, err := s.conn.Query(ctx, `
+		SELECT id, name, description, price, stock, created_at, updated_at
+		FROM items
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to run query on GetItems", err)
 	}
 	defer rows.Close()
 
 	var items []*models.Item
+
 	for rows.Next() {
 		var item models.Item
-		err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Stock, &item.CreatedAt)
+
+		err := rows.Scan(
+			&item.ID,
+			&item.Name,
+			&item.Description,
+			&item.Price,
+			&item.Stock,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		)
 		if err != nil {
-			// Handle the scan error, potentially breaking the loop or logging and continuing
-			fmt.Printf("unable to scan row: %w", err)
 			return nil, fmt.Errorf("unable to scan row: %w", err)
 		}
+
 		items = append(items, &item)
 	}
-	if rows.Err() != nil {
+
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
@@ -75,17 +88,31 @@ func (s *PostgresStore) GetItems(ctx context.Context) ([]*models.Item, error) {
 
 // GetItem returns a single item by ID, or nil if not found.
 func (s *PostgresStore) GetItem(ctx context.Context, id int) *models.Item {
-	// TODO: query a single item with conn.QueryRow()
-	row := s.conn.QueryRow(ctx, "select * from items where id=$1", id)
+	row := s.conn.QueryRow(ctx, `
+		SELECT id, name, description, price, stock, created_at, updated_at
+		FROM items
+		WHERE id = $1
+	`, id)
+
 	var item models.Item
-	err := row.Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Stock, &item.CreatedAt)
+
+	err := row.Scan(
+		&item.ID,
+		&item.Name,
+		&item.Description,
+		&item.Price,
+		&item.Stock,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	)
+
 	if err != nil {
-		fmt.Printf("unable to scan row: %w", err)
+		fmt.Printf("unable to scan row: %v\n", err)
 		return nil
 	}
+
 	return &item
 }
-
 func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error) {
 	tx, err := s.conn.Begin(ctx)
 	if err != nil {

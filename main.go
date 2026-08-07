@@ -33,11 +33,12 @@ func main() {
 	if err := conn.Ping(ctx); err != nil {
 		panic(err)
 	}
-	// s := store.NewInMemStore()
+	fmt.Println("===== REDIS CRUD =====")
+	runRedisCRUD()
 	postgresStore := store.NewPostgresStore(conn)
 	h := handlers.NewHandler(postgresStore)
-	// fmt.Println("===== WITHOUT LOCK =====")
-	// store.SimulateWithoutLock(postgresStore)
+	fmt.Println("===== WITHOUT LOCK =====")
+	store.SimulateWithoutLock(postgresStore)
 	fmt.Println("===== WITH LOCK =====")
 	store.SimulateWithLock(postgresStore)
 	http.HandleFunc("/user/cart/items/",

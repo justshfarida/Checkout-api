@@ -22,51 +22,70 @@ func runRedisCRUD() {
 		return
 	}
 
-	const key = "item:9"
+	// MANY ITEMS
+	items := map[string]map[string]interface{}{
+		"item:1": {
+			"name":  "T-Shirt",
+			"price": 2500,
+			"stock": 120,
+		},
+		"item:2": {
+			"name":  "Developer Hoodie",
+			"price": 6000,
+			"stock": 45,
+		},
+		"item:3": {
+			"name":  "Sticker Pack",
+			"price": 500,
+			"stock": 300,
+		},
+	}
 
 	// CREATE
-	err := client.HSet(ctx, key, map[string]interface{}{
-		"name":  "Race Condition Test Item",
-		"price": 100,
-		"stock": 1,
-	}).Err()
-	if err != nil {
-		log.Printf("failed to insert item: %v", err)
-		return
-	}
+	for key, item := range items {
+		err := client.HSet(ctx, key, item).Err()
+		if err != nil {
+			log.Printf("failed to insert %s: %v", key, err)
+			continue
+		}
 
-	fmt.Println("Inserted Redis item")
+		fmt.Println("Inserted:", key)
+	}
 
 	// READ
-	item, err := client.HGetAll(ctx, key).Result()
+	for key := range items {
+		item, err := client.HGetAll(ctx, key).Result()
+		if err != nil {
+			log.Printf("failed to retrieve %s: %v", key, err)
+			continue
+		}
+
+		fmt.Println("Retrieved:", key, item)
+	}
+
+	//UPDATE
+	err := client.HSet(ctx, "item:2", "stock", 100).Err()
 	if err != nil {
-		log.Printf("failed to retrieve item: %v", err)
+		log.Printf("failed to update item:2: %v", err)
 		return
 	}
 
-	fmt.Println("Retrieved:", item)
-
-	// UPDATE
-	err = client.HSet(ctx, key, "stock", 10).Err()
-	if err != nil {
-		log.Printf("failed to update item: %v", err)
-		return
-	}
-
-	updatedItem, err := client.HGetAll(ctx, key).Result()
+	updatedItem, err := client.HGetAll(ctx, "item:2").Result()
 	if err != nil {
 		log.Printf("failed to retrieve updated item: %v", err)
 		return
 	}
 
-	fmt.Println("Updated:", updatedItem)
+	fmt.Println("Updated item:2:", updatedItem)
 
-	// DELETE
-	deleted, err := client.Del(ctx, key).Result()
-	if err != nil {
-		log.Printf("failed to delete item: %v", err)
-		return
+	//DELETE
+	for key := range items {
+		deleted, err := client.Del(ctx, key).Result()
+		if err != nil {
+			log.Printf("failed to delete %s: %v", key, err)
+			continue
+		}
+
+		fmt.Printf("Deleted %s: %d\n", key, deleted)
 	}
-
-	fmt.Println("Deleted keys:", deleted)
 }

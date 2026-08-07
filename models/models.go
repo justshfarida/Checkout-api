@@ -10,6 +10,7 @@ type Item struct {
 	Price       int       `json:"price"` // Price in cents
 	Stock       int       `json:"stock"`
 	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // LineItem is a line item in an order.
