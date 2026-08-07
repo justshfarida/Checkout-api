@@ -20,7 +20,6 @@ import (
 	"checkout-api/models"
 )
 
-// ItemStore defines the data operations the handler needs.
 type ItemStore interface {
 	GetItems(ctx context.Context) ([]*models.Item, error)
 	GetItem(ctx context.Context, id int) (*models.Item, error)
@@ -39,7 +38,6 @@ type ItemStore interface {
 
 var SigningSecret string = "5298365169"
 
-// Handler holds dependencies for HTTP handlers.
 type Handler struct {
 	store            ItemStore
 	jwtSecret        []byte
@@ -52,11 +50,6 @@ type IdempotencyRecord struct {
 	Expiry     time.Time
 }
 
-// NewHandler creates a Handler with the given store.
-
-
-
-// mockProcessPayment simulates a payment provider call.
 func mockProcessPayment(amount int) PaymentResult {
 	if amount > 0 && amount < 1000000 {
 		return PaymentResult{
@@ -388,10 +381,6 @@ func (h *Handler) LoginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// store session(refresh token)
-	// TODO: do it yourself
-	// generate a random string(bonus: if you use a CSPRNG to generate a random sequence of bytes)
-	// insert into refresh_tokens (token_value, is_active) values ("sOmERANdomlYGeNERATEDstRing", 1)
 	refreshToken, err := generateRefreshToken()
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -459,13 +448,6 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) IssueJWT(w http.ResponseWriter, r *http.Request) {
-	// TODO: implement issueing of new JWT with refresh token
-	// check if refresh_token exists in the db and still active
-	// generate a new JWT
-	// generate a new random string (bonus: if you use a CSPRNG to generate a random sequence of bytes) as refresh_token
-	// save new refresh token in db
-	// deactivate old refresh token
-
 	var req RefreshTokenRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

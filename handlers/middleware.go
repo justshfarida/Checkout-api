@@ -17,9 +17,6 @@ func GetUserID(ctx context.Context) int {
 	return ctx.Value(userIDKey).(int)
 }
 
-// Auth builds middleware that verifies the "Authorization: Bearer <jwt>"
-// header, and (on success) stashes the authenticated user id in the request
-// context for handlers to read with UserIDFromContext.
 func Auth(jwtSecret []byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
