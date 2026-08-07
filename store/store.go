@@ -3,7 +3,6 @@ package store
 import (
 	"checkout-api/models"
 	"slices"
-	"time"
 )
 
 // Implement in-memory Store with NewStore() constructor.
@@ -16,7 +15,6 @@ type Store struct {
 	Orders      map[int]*models.Order
 	nextOrderID int
 	Carts       map[int]*models.Cart
-	Idempotency map[string]*models.IdempotencyRecord
 }
 
 // NewStore creates a Store pre-loaded with seed data.
@@ -26,13 +24,12 @@ func NewStore() *Store {
 		Orders:      make(map[int]*models.Order),
 		nextOrderID: 1,
 		Carts:       make(map[int]*models.Cart),
-		Idempotency: make(map[string]*models.IdempotencyRecord),
 	}
 
-	store.Items[1] = &models.Item{ID: 1, Name: "Laptop", Description: "A fast laptop", Price: 120000, Stock: 10, Category: "electronics"}
-	store.Items[2] = &models.Item{ID: 2, Name: "Mouse", Description: "Wireless mouse", Price: 2500, Stock: 50, Category: "electronics"}
-	store.Items[3] = &models.Item{ID: 3, Name: "Keyboard", Description: "Mechanical keyboard", Price: 8000, Stock: 30, Category: "electronics"}
-	store.Items[4] = &models.Item{ID: 4, Name: "Book", Description: "Mechanical keyboard", Price: 20, Stock: 10, Category: "education"}
+	store.Items[1] = &models.Item{ID: 1, Name: "Laptop", Description: "A fast laptop", Price: 120000, Stock: 10}
+	store.Items[2] = &models.Item{ID: 2, Name: "Mouse", Description: "Wireless mouse", Price: 2500, Stock: 50}
+	store.Items[3] = &models.Item{ID: 3, Name: "Keyboard", Description: "Mechanical keyboard", Price: 8000, Stock: 30}
+	store.Items[4] = &models.Item{ID: 4, Name: "Book", Description: "Mechanical keyboard", Price: 20, Stock: 10}
 
 	store.Orders[1] = &models.Order{
 		ID:     1,
@@ -64,7 +61,7 @@ func NewStore() *Store {
 		TotalPrice: 14000,
 		Status:     "active",
 	}
-	
+
 	return store
 }
 
@@ -76,20 +73,8 @@ func (store *Store) GetItems() []*models.Item {
 	return items
 }
 
-func (store *Store) CreateUserCart(cart *models.Cart) {
-	store.Carts[cart.UserID] = cart
-}
-
-func (store *Store) GetUserCart(userID int) *models.Cart {
-	if c, ok := store.Carts[userID]; ok {
-		return c
-	}
-	return nil
-}
-
 // ----- TASKS -----
 
-// LECTURE 1 - TASK 1
 func (store *Store) CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order {
 	order := &models.Order{
 		ID:         store.nextOrderID,
@@ -103,12 +88,10 @@ func (store *Store) CreateOrder(userID int, items []models.LineItem, total int, 
 	return order
 }
 
-// LECTURE 1 - TASK 1
 func (store *Store) GetItem(id int) *models.Item {
 	return store.Items[id]
 }
 
-// LECTURE 1 - TASK 2
 func (store *Store) GetOrdersByUserID(userID int) []*models.Order {
 	orders := make([]*models.Order, 0, len(store.Orders))
 	for _, order := range store.Orders {
@@ -119,7 +102,6 @@ func (store *Store) GetOrdersByUserID(userID int) []*models.Order {
 	return orders
 }
 
-// LECTURE 2 - TASK 1
 func (store *Store) UpdateItemQuantity(userID int, itemID int, quantity int) *models.Cart {
 	cart, ok := store.Carts[userID]
 	if !ok {
@@ -135,7 +117,6 @@ func (store *Store) UpdateItemQuantity(userID int, itemID int, quantity int) *mo
 	return nil
 }
 
-// LECTURE 2 - TASK 2
 func (store *Store) DeleteItem(userID int, itemID int) (*models.Cart, bool, bool) {
 	cart, ok := store.Carts[userID]
 	if !ok {
@@ -154,26 +135,15 @@ func (store *Store) DeleteItem(userID int, itemID int) (*models.Cart, bool, bool
 	return nil, false, false
 }
 
-// LECTURE 2 - TASK 3 AND OPTIONAL
-func (store *Store) GetIdempotencyRecord(key string) *models.IdempotencyRecord {
-	record, ok := store.Idempotency[key]
-	if !ok {
-		return nil
-	}
-	if time.Since(record.CreatedAt) > 30*time.Minute {
-		delete(store.Idempotency, key)
-		return nil
-	}
-	return record
+func (store *Store) CreateUserCart(cart *models.Cart) {
+	store.Carts[cart.UserID] = cart
 }
 
-func (store *Store) SaveIdempotencyRecord(key, requestHash string, statusCode int, body any) {
-	store.Idempotency[key] = &models.IdempotencyRecord{
-		StatusCode:  statusCode,
-		Body:        body,
-		RequestHash: requestHash,
-		CreatedAt:   time.Now(),
+func (store *Store) GetUserCart(userID int) *models.Cart {
+	if c, ok := store.Carts[userID]; ok {
+		return c
 	}
+	return nil
 }
 
 func (store *Store) DeleteCart(userID int) {

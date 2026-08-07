@@ -5,7 +5,7 @@ checkout-api
 *.dll
 *.so
 *.dylib
-
+.env
 # Go build/test artifacts
 *.test
 *.out

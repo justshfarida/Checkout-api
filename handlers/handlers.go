@@ -1,64 +1,67 @@
 package handlers
 
 import (
-	"checkout-api/models"
-	"crypto/sha256"
+	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"math"
-	"math/rand"
 	"net/http"
-	"sort"
+	"net/mail"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
+
+	"checkout-api/models"
 )
 
+// ItemStore defines the data operations the handler needs.
 type ItemStore interface {
-	GetItems() []*models.Item
-	GetItem(id int) *models.Item
-	CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order
-	CreateUserCart(cart *models.Cart)
-	GetUserCart(userID int) *models.Cart
-	GetOrdersByUserID(userID int) []*models.Order
-	UpdateItemQuantity(userID int, itemID int, quantity int) *models.Cart
-	DeleteItem(userID int, itemID int) (*models.Cart, bool, bool)
-	SaveIdempotencyRecord(key, requestHash string, statusCode int, body any)
-	GetIdempotencyRecord(key string) *models.IdempotencyRecord
-	DeleteCart(userID int)
+	GetItems(ctx context.Context) ([]*models.Item, error)
+	GetItem(ctx context.Context, id int) (*models.Item, error)
+	CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error)
+	UpdateOrderStatus(ctx context.Context, orderID int, status string) error
+	UpsertCartItem(ctx context.Context, userID int, itemID int, quantity int) error
+	GetUserCart(ctx context.Context, userID int) ([]models.CartItem, error)
+	DeleteUserCart(ctx context.Context, userID int) error
+	RemoveCartItem(ctx context.Context, userID int, itemID int) error
+	SaveUser(ctx context.Context, email string, hash []byte) error
+	FindUserByEmail(ctx context.Context, email string) (models.User, error)
+	FindRefreshToken(ctx context.Context, token string) (int, bool, error)
+	SaveRefreshToken(ctx context.Context, userID int, token string) error
+	DeactivateRefreshToken(ctx context.Context, token string) error
 }
 
-type createOrderItem struct {
-	ItemID   int `json:"item_id"`
-	Quantity int `json:"quantity"`
-}
-type createOrderRequest struct {
-	UserID int               `json:"user_id"`
-	Items  []createOrderItem `json:"items"`
-}
-type Handler struct{ store ItemStore }
+var SigningSecret string = "5298365169"
 
-func NewHandler(s ItemStore) *Handler { return &Handler{store: s} }
-
-type CreateOrderRequest struct {
-	UserID int `json:"user_id"`
-	Items  []struct {
-		ItemID   int `json:"item_id"`
-		Quantity int `json:"quantity"`
-	} `json:"items"`
-}
-type PaymentResult struct {
-	Success       bool   `json:"success"`
-	TransactionID string `json:"transaction_id,omitempty"`
-	Error         string `json:"error,omitempty"`
+// Handler holds dependencies for HTTP handlers.
+type Handler struct {
+	store            ItemStore
+	jwtSecret        []byte
+	idempotencyCache make(map[string]*IdempotencyRecord)
 }
 
+type IdempotencyRecord struct {
+	Response   []byte
+	StatusCode int
+	Expiry     time.Time
+}
+
+// NewHandler creates a Handler with the given store.
+
+
+
+// mockProcessPayment simulates a payment provider call.
 func mockProcessPayment(amount int) PaymentResult {
 	if amount > 0 && amount < 1000000 {
 		return PaymentResult{
-			Success: true,
+			Success:       true,
+			TransactionID: fmt.Sprintf("txn_%d", time.Now().UnixNano()),
 		}
 	}
 	return PaymentResult{
@@ -67,72 +70,82 @@ func mockProcessPayment(amount int) PaymentResult {
 	}
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
-}
-
-type CreateUserCartRequest struct {
-	UserID int `json:"user_id"`
-	Items  []struct {
-		ItemID   int `json:"item_id"`
-		Quantity int `json:"quantity"`
-	} `json:"items"`
-}
-
-func (handler *Handler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+func (h *Handler) UpsertCartItem(w http.ResponseWriter, r *http.Request) {
+	authorizationHeaderStr := r.Header.Get("Authorization")
+	if authorizationHeaderStr == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	var req CreateUserCartRequest
+	scheme := "bearer "
+	if len(authorizationHeaderStr) < len(scheme) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userScheme := authorizationHeaderStr[:len(scheme)] // BeArER
+	if !strings.EqualFold(scheme, userScheme) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userJWT := authorizationHeaderStr[len(scheme):]
+	var claims jwt.RegisteredClaims
+	_, err := jwt.ParseWithClaims(
+		userJWT,
+		&claims,
+		func(t *jwt.Token) (any, error) {
+			return []byte(SigningSecret), nil
+		},
+		jwt.WithValidMethods([]string{"HS256"}),
+	)
+	if err != nil {
+		fmt.Printf("failed to parse jwt %q", err.Error())
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userID, err := strconv.Atoi(claims.Subject)
+	if err != nil {
+		fmt.Printf("failed to parse jwt %q", err.Error())
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// user is now authenticated
+	itemIDStr := r.PathValue("item_id")
+	if itemIDStr == "" {
+		http.Error(w, "missing item_id", http.StatusBadRequest)
+		return
+	}
+
+	itemID, err := strconv.Atoi(itemIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, ErrorMessageResponse{
+			Message: "item_id must be integer",
+		})
+		return
+	}
+
+	var req UpsertCartItemRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if handler.store.GetUserCart(req.UserID) != nil {
-		http.Error(w, "cart already exists", http.StatusConflict)
+	if req.Quantity <= 0 {
+		http.Error(w, "quantity must be greater than 0", http.StatusBadRequest)
 		return
 	}
 
-	if len(req.Items) == 0 {
-		http.Error(w, "can't create empty cart", http.StatusBadRequest)
+	if err := h.store.UpsertCartItem(r.Context(), userID, itemID, req.Quantity); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	orderItems := make([]models.LineItem, 0, len(req.Items))
-	for _, item := range req.Items {
-		storeItem := handler.store.GetItem(item.ItemID)
-		if storeItem == nil {
-			http.Error(w, fmt.Sprintf("Item %d not found", item.ItemID), http.StatusBadRequest)
-			return
-		}
-		orderItems = append(orderItems, models.LineItem{
-			ItemID:   item.ItemID,
-			Quantity: item.Quantity,
-			Price:    storeItem.Price,
-		})
-	}
-
-	userCart := &models.Cart{
-		ID:     fmt.Sprintf("cart_%d", req.UserID),
-		UserID: req.UserID,
-		Items:  orderItems,
-	}
-
-	handler.store.CreateUserCart(userCart)
-	writeJSON(w, http.StatusCreated, userCart)
+	writeJSON(w, http.StatusNoContent, nil)
 }
 
-func (handler *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 	userIDStr := r.Header.Get("X-User-ID")
 	if userIDStr == "" {
 		http.Error(w, "missing X-User-ID header", http.StatusBadRequest)
@@ -145,83 +158,67 @@ func (handler *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cart := handler.store.GetUserCart(userID)
-	if cart == nil {
-		emptyCart := &models.Cart{
-			ID:     "",
-			UserID: userID,
-			Items:  []models.LineItem{},
-		}
-		writeJSON(w, http.StatusOK, emptyCart)
+	itemIDStr := r.PathValue("item_id")
+	if itemIDStr == "" {
+		http.Error(w, "missing item_id", http.StatusBadRequest)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, cart)
-}
-
-// -------------------------------------------------------------------------
-
-// LECTURE 1 - TASK 1
-func (handler *Handler) GetItem(writer http.ResponseWriter, request *http.Request) {
-	fullUrl := request.URL.Path
-	UrlID := strings.TrimPrefix(fullUrl, "/items/")
-	idNum, err := strconv.Atoi(UrlID)
-
+	itemID, err := strconv.Atoi(itemIDStr)
 	if err != nil {
-		http.Error(writer, http.StatusText(400), http.StatusBadRequest)
+		writeJSON(w, http.StatusUnprocessableEntity, ErrorMessageResponse{
+			Message: "item_id must be integer",
+		})
 		return
-	} // bad request aka value isnt num test passed
+	}
 
-	item := handler.store.GetItem(idNum)
-	if item == nil {
-		http.Error(writer, http.StatusText(404), http.StatusNotFound)
+	if err := h.store.RemoveCartItem(r.Context(), userID, itemID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	} // item not found test passed
+	}
 
-	writeJSON(writer, http.StatusOK, item)
+	w.WriteHeader(http.StatusNoContent)
 }
 
-// LECTURE 1 - TASK 2
-func (handler *Handler) GetOrdersByUserID(writer http.ResponseWriter, request *http.Request) {
-	fullUrl := request.URL.Path
-	UrlID := strings.TrimPrefix(fullUrl, "/users/")
-	IDNum := strings.TrimSuffix(UrlID, "/orders")
-	num, err := strconv.Atoi(IDNum)
+func (h *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
+	userID := GetUserID(r.Context())
+	cart, err := h.store.GetUserCart(r.Context(), userID)
 	if err != nil {
-		http.Error(writer, http.StatusText(400), http.StatusBadRequest)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	orders := handler.store.GetOrdersByUserID(num)
-	writeJSON(writer, http.StatusOK, orders)
-}
-
-// LECTURE 1 - TASK 3
-func retryWithBackoff(maxRetries int, fn func() (bool, error)) bool {
-	baseDelay := 100 * time.Millisecond
-	maxDelay := 400 * time.Millisecond
-
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		ok, err := fn()
-		if err == nil && ok {
-			return true
-		}
-
-		if attempt < maxRetries {
-			delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
-			if delay > maxDelay {
-				delay = maxDelay
-			}
-			time.Sleep(delay)
-		}
+	items := make([]CartItemResponse, 0, len(cart))
+	for _, item := range cart {
+		items = append(items, CartItemResponse{
+			ID:          item.ID,
+			Name:        item.Name,
+			Description: item.Description,
+			Price:       item.Price,
+			Stock:       item.Stock,
+			CreatedAt:   item.CreatedAt,
+			Quantity:    item.Quantity,
+		})
 	}
-	return false
+
+	writeJSON(w, http.StatusOK, CartResponse{
+		UserID: userID,
+		Items:  items,
+	})
 }
 
-// LECTURE 1 - TASK 3 (retry with backoff)
+func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
+	userIDStr := r.Header.Get("X-User-ID")
+	if userIDStr == "" {
+		http.Error(w, "missing X-User-ID header", http.StatusBadRequest)
+		return
+	}
 
-// LECTURE 1 - TASK 1
-func (handler *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		http.Error(w, "invalid X-User-ID header", http.StatusBadRequest)
+		return
+	}
 
 	idempotencyKey := r.Header.Get("Idempotency-Key")
 	if idempotencyKey == "" {
@@ -229,178 +226,308 @@ func (handler *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	bodyHash := sha256.Sum256(bodyBytes)
-	currentHash := hex.EncodeToString(bodyHash[:])
-
-	if cached := handler.store.GetIdempotencyRecord(idempotencyKey); cached != nil {
-		if cached.RequestHash != currentHash {
-			http.Error(w, "Idempotency-Key already used with a different request body", http.StatusConflict)
+	if record, exists := h.idempotencyCache[idempotencyKey]; exists {
+		if time.Now().Before(record.Expiry) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(record.StatusCode)
+			w.Write(record.Response)
 			return
 		}
-		writeJSON(w, cached.StatusCode, cached.Body)
-		return
+		delete(h.idempotencyCache, idempotencyKey)
 	}
 
 	var req CreateOrderRequest
-	if err := json.Unmarshal(bodyBytes, &req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	cart := handler.store.GetUserCart(req.UserID)
-	if cart == nil || len(cart.Items) == 0 {
-		http.Error(w, "cart is empty or does not exist", http.StatusBadRequest)
+	if len(req.LineItems) == 0 {
+		http.Error(w, "items must not be empty", http.StatusBadRequest)
 		return
 	}
 
-	total := 0
-	orderItems := make([]models.LineItem, 0, len(cart.Items))
-	for _, item := range cart.Items {
-		storeItem := handler.store.GetItem(item.ItemID)
-		if storeItem == nil {
-			http.Error(w, fmt.Sprintf("Item %d not found", item.ItemID), http.StatusBadRequest)
-			return
-		}
-		if item.Quantity <= 0 {
-			http.Error(w, fmt.Sprintf("invalid quantity for item %d", item.ItemID), http.StatusBadRequest)
-			return
-		}
-		if storeItem.Stock < item.Quantity {
-			http.Error(w, fmt.Sprintf("insufficient stock for item %d", item.ItemID), http.StatusConflict)
-			return
-		}
-		total += storeItem.Price * item.Quantity
-		orderItems = append(orderItems, models.LineItem{
-			ItemID:   item.ItemID,
-			Quantity: item.Quantity,
-			Price:    storeItem.Price,
+	items := make([]models.LineItem, 0, len(req.LineItems))
+	for _, i := range req.LineItems {
+		items = append(items, models.LineItem{
+			ItemID:   i.ItemID,
+			Quantity: i.Quantity,
+			Price:    i.Price,
 		})
 	}
 
-	var paymentResult PaymentResult
-	success := retryWithBackoff(3, func() (bool, error) {
-		paymentResult = mockProcessPayment(total)
-		return paymentResult.Success, nil
+	order, err := h.store.CreateOrder(r.Context(), userID, items, req.Total, "pending")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	paymentResult := mockProcessPayment(req.Total)
+
+	status := "paid"
+	if !paymentResult.Success {
+		status = "failed"
+	}
+
+	if err := h.store.UpdateOrderStatus(r.Context(), order.ID, status); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	order.Status = status
+
+	responseData := map[string]any{
+		"order":   order,
+		"payment": paymentResult,
+	}
+
+	statusCode := http.StatusCreated
+	if !paymentResult.Success {
+		statusCode = http.StatusPaymentRequired
+	}
+
+	responseBody, _ := json.Marshal(responseData)
+	h.idempotencyCache[idempotencyKey] = &IdempotencyRecord{
+		Response:   responseBody,
+		StatusCode: statusCode,
+		Expiry:     time.Now().Add(24 * time.Hour),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	w.Write(responseBody)
+}
+
+// Items
+func (h *Handler) GetItems(w http.ResponseWriter, r *http.Request) {
+	items, err := h.store.GetItems(r.Context())
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, items)
+	return
+}
+
+func (h *Handler) GetItemByID(w http.ResponseWriter, r *http.Request) {
+	itemIDStr := r.PathValue("item_id")
+	if itemIDStr == "" {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		return
+	}
+
+	itemID, err := strconv.Atoi(itemIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, ErrorMessageResponse{
+			Message: "item_id must be an integer",
+		})
+		return
+	}
+
+	item, err := h.store.GetItem(r.Context(), itemID)
+	if err != nil {
+		fmt.Printf("error: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if item == nil {
+		writeJSON(w, http.StatusNotFound, nil)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, item)
+	return
+}
+
+// writeJSON encodes v as JSON and writes it to the response.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+func (h *Handler) LoginUser(w http.ResponseWriter, r *http.Request) {
+	var req AuthRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	user, err := h.store.FindUserByEmail(r.Context(), req.Email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusUnprocessableEntity, ErrorMessageResponse{
+				Message: "user does not exist",
+			})
+			return
+		}
+		fmt.Printf("cannot query %q", err.Error())
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword(user.Hash, []byte(req.Password))
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// issue jwt
+	fifteenAfter := time.Now().Add(15 * time.Minute)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(fifteenAfter),
+		Subject:   strconv.Itoa(user.ID),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	})
 
-	if !success {
-		handler.store.SaveIdempotencyRecord(idempotencyKey, currentHash, http.StatusPaymentRequired, paymentResult)
-		writeJSON(w, http.StatusPaymentRequired, map[string]any{"payment": paymentResult})
+	signedString, err := token.SignedString([]byte(SigningSecret))
+	if err != nil {
+		fmt.Printf("cannot generate signed string %q", err.Error())
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	order := handler.store.CreateOrder(req.UserID, orderItems, total, "paid")
-	handler.store.DeleteCart(req.UserID)
+	// store session(refresh token)
+	// TODO: do it yourself
+	// generate a random string(bonus: if you use a CSPRNG to generate a random sequence of bytes)
+	// insert into refresh_tokens (token_value, is_active) values ("sOmERANdomlYGeNERATEDstRing", 1)
+	refreshToken, err := generateRefreshToken()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
-	responseBody := map[string]any{"order": order, "payment": paymentResult}
-	handler.store.SaveIdempotencyRecord(idempotencyKey, currentHash, http.StatusCreated, responseBody)
-	writeJSON(w, http.StatusCreated, responseBody)
+	err = h.store.SaveRefreshToken(r.Context(), user.ID, refreshToken)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, AuthResponse{
+		JWT:          signedString,
+		RefreshToken: refreshToken,
+	})
 }
 
-func mockChargePayment(amountCents int) bool {
-	return rand.Intn(10) < 6
-} // for failing before backoff
+func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
+	var req AuthRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
 
-// LECTURE 1 - TASK 4
-func (handler *Handler) GetItems(writer http.ResponseWriter, request *http.Request) {
-	items := handler.store.GetItems()
+	// validate email
+	_, err = mail.ParseAddress(req.Email)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, ErrorMessageResponse{
+			Message: "invalid email",
+		})
+		return
+	}
 
-	query := request.URL.Query()
-	category := query.Get("category")
-	sortBy := query.Get("sort")
+	pwlen := len(req.Password)
+	// validate password
+	if pwlen < 12 || pwlen > 25 {
+		writeJSON(w, http.StatusUnprocessableEntity, ErrorMessageResponse{
+			Message: "password is too short or too long",
+		})
+		return
+	}
 
-	if category != "" {
-		filtered := make([]*models.Item, 0, len(items))
-		for _, item := range items {
-			if item.Category == category {
-				filtered = append(filtered, item)
-			}
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	err = h.store.SaveUser(r.Context(), req.Email, hash)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			writeJSON(w, http.StatusConflict, ErrorMessageResponse{
+				Message: "user already exists",
+			})
+			return
 		}
-		items = filtered
+
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
-	switch sortBy {
-	case "price":
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].Price < items[j].Price
-		})
-	case "name":
-		sort.Slice(items, func(i, j int) bool {
-			return items[i].Name < items[j].Name
-		})
+	writeJSON(w, http.StatusCreated, nil)
+}
+
+func (h *Handler) IssueJWT(w http.ResponseWriter, r *http.Request) {
+	// TODO: implement issueing of new JWT with refresh token
+	// check if refresh_token exists in the db and still active
+	// generate a new JWT
+	// generate a new random string (bonus: if you use a CSPRNG to generate a random sequence of bytes) as refresh_token
+	// save new refresh token in db
+	// deactivate old refresh token
+
+	var req RefreshTokenRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
 	}
 
-	writer.Header().Set("Cache-Control", "public, max-age=60")
-	writeJSON(writer, http.StatusOK, items)
-}
-
-// -------------------------------------------------------------------------
-
-// LECTURE 2 - TASK 1
-type updateQuantityRequest struct {
-	UserID   int `json:"user_id"`
-	Quantity int `json:"quantity"`
-}
-
-func (handler *Handler) UpdateItemQuantity(writer http.ResponseWriter, request *http.Request) {
-	idStr := request.PathValue("id")
-	id, err := strconv.Atoi(idStr)
+	userID, active, err := h.store.FindRefreshToken(r.Context(), req.RefreshToken)
 	if err != nil {
-		http.Error(writer, http.StatusText(400), http.StatusBadRequest)
-		return
-	}
-	var req updateQuantityRequest
-	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
-		http.Error(writer, "invalid request body", http.StatusBadRequest)
+		http.Error(w, "invalid refresh token", http.StatusUnauthorized)
 		return
 	}
 
-	if req.Quantity <= 0 {
-		http.Error(writer, "quantity must be greater than 0", http.StatusBadRequest)
+	if !active {
+		http.Error(w, "refresh token inactive", http.StatusUnauthorized)
 		return
 	}
 
-	cart := handler.store.UpdateItemQuantity(req.UserID, id, req.Quantity)
-	if cart == nil {
-		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-		return
-	}
+	fifteenAfter := time.Now().Add(15 * time.Minute)
 
-	writeJSON(writer, http.StatusOK, cart)
-}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(fifteenAfter),
+		Subject:   strconv.Itoa(userID),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	})
 
-// LECTURE 2 - TASK 2
-type deleteItemRequest struct {
-	UserID int `json:"user_id"`
-}
-
-func (handler *Handler) DeleteItem(writer http.ResponseWriter, request *http.Request) {
-	idStr := request.PathValue("id")
-	id, err := strconv.Atoi(idStr)
+	signedJWT, err := token.SignedString([]byte(SigningSecret))
 	if err != nil {
-		http.Error(writer, http.StatusText(400), http.StatusBadRequest)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	var req deleteItemRequest
-	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
-		http.Error(writer, "invalid request body", http.StatusBadRequest)
+	newRefreshToken, err := generateRefreshToken()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	cart, cartDeleted, itemFound := handler.store.DeleteItem(req.UserID, id)
-	if !itemFound {
-		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+	err = h.store.SaveRefreshToken(r.Context(), userID, newRefreshToken)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	if cartDeleted {
-		writer.WriteHeader(http.StatusNoContent)
+
+	err = h.store.DeactivateRefreshToken(r.Context(), req.RefreshToken)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(writer, http.StatusOK, cart)
+
+	writeJSON(w, http.StatusOK, AuthResponse{
+		JWT:          signedJWT,
+		RefreshToken: newRefreshToken,
+	})
+}
+
+func generateRefreshToken() (string, error) {
+	bytes := make([]byte, 32)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(bytes), nil
 }
