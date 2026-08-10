@@ -2,7 +2,9 @@ package store
 
 import (
 	"checkout-api/models"
+	"fmt"
 	"slices"
+	"time"
 )
 
 // Implement in-memory Store with NewStore() constructor.
@@ -15,6 +17,10 @@ type Store struct {
 	Orders      map[int]*models.Order
 	nextOrderID int
 	Carts       map[int]*models.Cart
+	Idempotency map[string]*models.IdempotencyRecord
+	Users       map[int]*models.User
+	NextUserID  int
+	Sessions    map[int]*models.Session
 }
 
 // NewStore creates a Store pre-loaded with seed data.
@@ -24,12 +30,16 @@ func NewStore() *Store {
 		Orders:      make(map[int]*models.Order),
 		nextOrderID: 1,
 		Carts:       make(map[int]*models.Cart),
+		Idempotency: make(map[string]*models.IdempotencyRecord),
+		Users:       make(map[int]*models.User),
+		NextUserID:  1,
+		Sessions:    make(map[int]*models.Session),
 	}
 
-	store.Items[1] = &models.Item{ID: 1, Name: "Laptop", Description: "A fast laptop", Price: 120000, Stock: 10}
-	store.Items[2] = &models.Item{ID: 2, Name: "Mouse", Description: "Wireless mouse", Price: 2500, Stock: 50}
-	store.Items[3] = &models.Item{ID: 3, Name: "Keyboard", Description: "Mechanical keyboard", Price: 8000, Stock: 30}
-	store.Items[4] = &models.Item{ID: 4, Name: "Book", Description: "Mechanical keyboard", Price: 20, Stock: 10}
+	store.Items[1] = &models.Item{ID: 1, Name: "Laptop", Description: "A fast laptop", Price: 120000, Stock: 10, Category: "electronics"}
+	store.Items[2] = &models.Item{ID: 2, Name: "Mouse", Description: "Wireless mouse", Price: 2500, Stock: 50, Category: "electronics"}
+	store.Items[3] = &models.Item{ID: 3, Name: "Keyboard", Description: "Mechanical keyboard", Price: 8000, Stock: 30, Category: "electronics"}
+	store.Items[4] = &models.Item{ID: 4, Name: "Book", Description: "Mechanical keyboard", Price: 20, Stock: 10, Category: "education"}
 
 	store.Orders[1] = &models.Order{
 		ID:     1,
@@ -65,6 +75,8 @@ func NewStore() *Store {
 	return store
 }
 
+// Items
+
 func (store *Store) GetItems() []*models.Item {
 	items := make([]*models.Item, 0, len(store.Items))
 	for _, item := range store.Items {
@@ -73,33 +85,21 @@ func (store *Store) GetItems() []*models.Item {
 	return items
 }
 
-// ----- TASKS -----
-
-func (store *Store) CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order {
-	order := &models.Order{
-		ID:         store.nextOrderID,
-		UserID:     userID,
-		Items:      items,
-		TotalPrice: total,
-		Status:     status,
-	}
-	store.Orders[order.ID] = order
-	store.nextOrderID++
-	return order
-}
-
 func (store *Store) GetItem(id int) *models.Item {
 	return store.Items[id]
 }
 
-func (store *Store) GetOrdersByUserID(userID int) []*models.Order {
-	orders := make([]*models.Order, 0, len(store.Orders))
-	for _, order := range store.Orders {
-		if order.UserID == userID {
-			orders = append(orders, order)
-		}
+// Cart
+
+func (store *Store) CreateUserCartAndAddItems(cart *models.Cart) {
+	store.Carts[cart.UserID] = cart
+}
+
+func (store *Store) GetUserCart(userID int) *models.Cart {
+	if c, ok := store.Carts[userID]; ok {
+		return c
 	}
-	return orders
+	return nil
 }
 
 func (store *Store) UpdateItemQuantity(userID int, itemID int, quantity int) *models.Cart {
@@ -135,17 +135,76 @@ func (store *Store) DeleteItem(userID int, itemID int) (*models.Cart, bool, bool
 	return nil, false, false
 }
 
-func (store *Store) CreateUserCart(cart *models.Cart) {
-	store.Carts[cart.UserID] = cart
-}
-
-func (store *Store) GetUserCart(userID int) *models.Cart {
-	if c, ok := store.Carts[userID]; ok {
-		return c
-	}
-	return nil
-}
-
 func (store *Store) DeleteCart(userID int) {
 	delete(store.Carts, userID)
+}
+
+// Orders
+
+func (store *Store) CreateOrder(userID int, items []models.LineItem, total int, status string) *models.Order {
+	order := &models.Order{
+		ID:         store.nextOrderID,
+		UserID:     userID,
+		Items:      items,
+		TotalPrice: total,
+		Status:     status,
+	}
+	store.Orders[order.ID] = order
+	store.nextOrderID++
+	return order
+}
+
+func (store *Store) GetOrdersByUserID(userID int) []*models.Order {
+	orders := make([]*models.Order, 0, len(store.Orders))
+	for _, order := range store.Orders {
+		if order.UserID == userID {
+			orders = append(orders, order)
+		}
+	}
+	return orders
+}
+
+// Users
+
+func (store *Store) SignUp(username string, password string) (*models.User, error) {
+	user := &models.User{
+		Username:     username,
+		PasswordHash: password,
+	}
+	store.Users[user.ID] = user
+	store.NextUserID++
+	return user, nil
+}
+
+func (store *Store) Login(username string, password string) {
+	for _, u := range store.Users {
+		if u.PasswordHash != password {
+			fmt.Errorf("password incorrect for %q", username)
+		}
+	}
+
+	fmt.Printf("You are logged in, %s\n", username)
+}
+
+// Idempotency
+
+func (store *Store) GetIdempotencyRecord(key string) *models.IdempotencyRecord {
+	record, ok := store.Idempotency[key]
+	if !ok {
+		return nil
+	}
+	if time.Since(record.CreatedAt) > 30*time.Minute {
+		delete(store.Idempotency, key)
+		return nil
+	}
+	return record
+}
+
+func (store *Store) SaveIdempotencyRecord(key, requestHash string, statusCode int, body any) {
+	store.Idempotency[key] = &models.IdempotencyRecord{
+		StatusCode:  statusCode,
+		Body:        body,
+		RequestHash: requestHash,
+		CreatedAt:   time.Now(),
+	}
 }

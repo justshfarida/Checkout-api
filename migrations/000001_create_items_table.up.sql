@@ -7,7 +7,7 @@ CREATE TABLE items (
     price INTEGER NOT NULL,
     stock INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
-)
+);
 
 CREATE INDEX idx_items_price ON items (price);
 CREATE INDEX idx_items_name ON items (name);

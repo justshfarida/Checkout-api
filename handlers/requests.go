@@ -1,25 +1,34 @@
 package handlers
 
-type UpsertCartItemRequest struct {
-	Quantity int `json:"quantity"`
+type CreateUserCartRequest struct {
+	UserID int `json:"user_id"`
+	Items  []struct {
+		ItemID   int `json:"item_id"`
+		Quantity int `json:"quantity"`
+	} `json:"items"`
 }
 
+/*
 type CreateOrderRequest struct {
-	LineItems []LineItemRequest `json:"line_items"`
-	Total     int               `json:"total"`
+	UserID int `json:"user_id"`
+	Items  []struct {
+		ItemID   int `json:"item_id"`
+		Quantity int `json:"quantity"`
+	} `json:"items"`
 }
+*/
 
-type LineItemRequest struct {
-	ItemID   int `json:"item_id"`
+type updateQuantityRequest struct {
+	UserID   int `json:"user_id"`
 	Quantity int `json:"quantity"`
-	Price    int `json:"price"`
 }
 
-type AuthRequest struct {
-	Email    string `json:"email"`
+type SignUpRequest struct {
+	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token"`
+type LoginRequest struct {
+	username string `json:"username"`
+	Password string `json:"password"`
 }

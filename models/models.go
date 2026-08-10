@@ -8,6 +8,7 @@ type Item struct {
 	Description string    `json:"description"`
 	Price       int       `json:"price"` // Price in cents
 	Stock       int       `json:"stock"`
+	Category    string    `json:"category"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -23,26 +24,39 @@ type Order struct {
 	Items      []LineItem `json:"items"`
 	TotalPrice int        `json:"total"`
 	Status     string     `json:"status"`
-	CreatedAt  time.Time  `json:"created_at"`
 }
 
 type Cart struct {
-	ID     string     `json:"id"`
-	UserID int        `json:"user_id"`
-	Items  []LineItem `json:"items"`
+	ID           string     `json:"id"`
+	UserID       int        `json:"user_id"`
+	Items        []LineItem `json:"items"`
+	LastAccessed time.Time  `json:"-"`
 }
-type CartItem struct {
-	ID          int       `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Price       int       `json:"price"` // Price in cents
-	Stock       int       `json:"stock"`
-	CreatedAt   time.Time `json:"created_at"`
-	Quantity    int       `json:"quantity"`
+
+type IdempotencyRecord struct {
+	StatusCode  int
+	Body        any
+	RequestHash string
+	CreatedAt   time.Time
 }
 
 type User struct {
-	ID    int    `json:"id"`
-	Email string `json:"email"`
-	Hash  []byte
+	ID           int       `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type Session struct {
+	Token     string    `json:"-"`
+	UserID    int       `json:"user_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type RefreshToken struct {
+	Token     string    `json:"-"`
+	UserID    int       `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Revoked   bool      `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
 }

@@ -14,18 +14,21 @@ import (
 )
 
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
+	/*
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			fmt.Printf("CATCH-ALL: %s %s\n", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		})
+	*/
+
+	if err := godotenv.Load(); err != nil {
+		log.Println("no .env file found, relying on real environment variables")
 	}
 
 	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL is not set (check your .env file)")
-	}
 	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Fatal("JWT_SECRET is not set (check your .env file)")
+	if dbURL == "" || jwtSecret == "" {
+		log.Fatal("DATABASE_URL and JWT_SECRET must be set")
 	}
 
 	ctx := context.Background()
@@ -33,34 +36,45 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	if err := conn.Ping(ctx); err != nil {
+	err = conn.Ping(ctx)
+	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Successfully connected to db")
+
+	// defer conn.Close()
+
+	fmt.Println("successfully connected to db")
 
 	postgresStore := store.NewPostgresStore(conn)
-	handler := handlers.NewHandler(postgresStore)
+	handler := handlers.NewHandler(postgresStore, []byte(jwtSecret))
 
-	mux := http.NewServeMux()
+	// Cart
+	http.HandleFunc("/user/cart",
+		func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				handler.GetUserCart(w, r)
+			case http.MethodPost:
+				handler.CreateUserCartAndAddItems(w, r)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+	http.HandleFunc("PATCH /user/cart/items/{id}", handler.UpdateItemQuantity)
+	http.HandleFunc("DELETE /user/cart/items/{id}", handler.DeleteItem)
 
 	// Items
 	http.HandleFunc("GET /items", handler.GetItems)
-	http.HandleFunc("GET /items/{item_id}", handler.GetItem)
+	http.HandleFunc("GET /items/", handler.GetItem)
+
+	// Orders
+	http.HandleFunc("POST /orders", handler.CreateOrder)
+	http.HandleFunc("GET /users/{user_id}/orders", handler.GetOrdersByUserID)
 
 	// Users
 	http.HandleFunc("POST /signup", handler.SignUp)
-	http.HandleFunc("POST /login", handler.Login)
-	http.HandleFunc("GET /token", handler.Token)
+	http.HandleFunc("GET /login", handler.Login)
+	http.HandleFunc("GET /token", handler.RefreshToken)
 
-	// Cart
-	http.HandleFunc("POST /user/cart", handler.CreateUserCartAndAddItems)
-	// http.Handle("GET /user/cart", handler.JWTMiddleware(handler.GetUserCart))
-	http.HandleFunc("PATCH /user/cart/items/{item_id}", handler.UpsertCartItem)
-	// http.HandleFunc("DELETE /user/cart/items/{item_id}", handler.JWTMiddleware(handler.RemoveCartItem))
-
-	// Orders
-	// http.HandleFunc("POST /orders", handler.JWTMiddleware(handler.CreateOrder))
-
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }

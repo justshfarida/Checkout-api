@@ -1,0 +1,10 @@
+BEGIN;
+
+CREATE TABLE users (
+   id SERIAL PRIMARY KEY,
+   username VARCHAR(50) NOT NULL UNIQUE,
+   password_hash TEXT NOT NULL,
+   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMIT;

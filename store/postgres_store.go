@@ -3,249 +3,356 @@ package store
 import (
 	"checkout-api/models"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"golang.org/x/crypto/bcrypt"
 )
 
+// PostgresStore is an in-memory store for items and orders.
 type PostgresStore struct {
 	conn *pgx.Conn
 }
 
+// NewPostgresStore creates a Store pre-loaded with seed data.
 func NewPostgresStore(conn *pgx.Conn) *PostgresStore {
-	return &PostgresStore{conn: conn}
-}
-
-func (s *PostgresStore) DB() *Query {
-	return &Query{
-		DBTX: s.conn,
+	s := &PostgresStore{
+		conn: conn,
 	}
+	return s
 }
 
-func (s *PostgresStore) WithTx(tx pgx.Tx) *Query {
-	return &Query{
-		DBTX: tx,
-	}
-}
-
-// Ietms
+// Items
 
 func (s *PostgresStore) GetItems(ctx context.Context) ([]*models.Item, error) {
-	rows, err := s.DB().GetItems(ctx)
+	rows, err := s.conn.Query(ctx, "select id, name, description, price, stock, created_at from items")
 	if err != nil {
-		return nil, fmt.Errorf("failed to list items: %w", err)
+		return nil, fmt.Errorf("failed to run query on GetItems: %w", err)
 	}
 	defer rows.Close()
 
-	items := make([]*models.Item, 0)
+	var items []*models.Item
 	for rows.Next() {
-		var it models.Item
-		if err := rows.Scan(&it.ID, &it.Name, &it.Description, &it.Price, &it.Stock, &it.CreatedAt); err != nil {
-			return nil, err
+		var item models.Item
+		err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Stock, &item.CreatedAt)
+		if err != nil {
+			fmt.Printf("unable to scan row: %w", err)
+			return nil, fmt.Errorf("unable to scan row: %w", err)
 		}
-		items = append(items, &it)
-	}
-	return items, rows.Err()
-}
-
-func (s *PostgresStore) GetItem(ctx context.Context, id int) (*models.Item, error) {
-	var item models.Item
-	err := s.DB().GetItem(ctx, id).Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Stock, &item.CreatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get item %d: %w", id, err)
-	}
-	return &item, nil
-}
-
-// Users
-
-func (s *PostgresStore) FindUserByEmail(ctx context.Context, email string) (models.User, error) {
-	var user models.User
-	row := s.DB().GetUserByEmail(ctx, email)
-	err := row.Scan(&user.ID, &user.Email, &user.Hash)
-	if err != nil {
-		return models.User{}, err
-	}
-
-	return user, nil
-}
-
-func (s *PostgresStore) SaveUser(ctx context.Context, email string, hash []byte) error {
-	_, err := s.DB().InsertUser(ctx, email, hash)
-	return err
-}
-
-// Cart
-
-func (s *PostgresStore) UpsertCartItem(ctx context.Context, userID int, itemID int, quantity int) error {
-	_, err := s.DB().UpsertCart(ctx, userID, itemID, quantity)
-	return err
-}
-
-func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) ([]models.CartItem, error) {
-	rows, err := s.DB().GetItemsFromUserCart(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get cart for user %d: %w", userID, err)
-	}
-	defer rows.Close()
-
-	items := make([]models.CartItem, 0)
-	for rows.Next() {
-		var item models.CartItem
-		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Stock, &item.CreatedAt, &item.Quantity); err != nil {
-			return nil, fmt.Errorf("failed to scan cart row: %w", err)
-		}
-		items = append(items, item)
+		items = append(items, &item)
 	}
 	if rows.Err() != nil {
-		return nil, rows.Err()
+		return nil, err
 	}
 
 	return items, nil
 }
 
-func (s *PostgresStore) RemoveCartItem(ctx context.Context, userID int, itemID int) error {
-	_, err := s.DB().DeleteItemFromUserCart(ctx, userID, itemID)
-	return err
+func (s *PostgresStore) GetItem(ctx context.Context, id int) (*models.Item, error) {
+	row := s.conn.QueryRow(ctx, "select id, name, description, price, stock, created_at from items where id=$1", id)
+
+	var item models.Item
+	err := row.Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Stock, &item.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("item %d not found", id)
+		}
+		return nil, fmt.Errorf("unable to scan row for item %d: %w", id, err)
+	}
+
+	return &item, nil
 }
 
-func (s *PostgresStore) DeleteUserCart(ctx context.Context, userID int) error {
-	_, err := s.DB().DeleteCartByUserID(ctx, userID)
-	return err
-}
+// Cart
 
-// Orders
-
-func (s *PostgresStore) CreateOrder(ctx context.Context, idempotencyKey string, userID int, items []models.LineItem, total int, status string) (*models.Order, bool, error) {
+func (s *PostgresStore) CreateUserCartAndAddItems(ctx context.Context, cart *models.Cart) error {
 	tx, err := s.conn.Begin(ctx)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("unable to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	q := s.WithTx(tx)
-
-	// Pessimistic lock: acquire row-level lock on each item and verify sufficient stock.
-	for _, lineItem := range items {
-		var item models.Item
-		err := q.GetItemByIDForUpdate(ctx, lineItem.ItemID).Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Stock, &item.CreatedAt)		if err != nil {
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return nil, false, fmt.Errorf("item %d not found", lineItem.ItemID)
-				}
-				return nil, false, fmt.Errorf("failed to lock item %d: %w", lineItem.ItemID, err)
-			}
-			if item.Stock < lineItem.Quantity {
-				return nil, false, fmt.Errorf("Insufficient stock", lineItem.ItemID, err)
-			}
+	var cartID int
+	err = tx.QueryRow(ctx,
+		`insert into carts (user_id, last_accessed) values ($1, now())
+		 on conflict (user_id) do update set last_accessed=now()
+		 returning id`,
+		cart.UserID,
+	).Scan(&cartID)
+	if err != nil {
+		return fmt.Errorf("unable to create/find cart for user %d: %w", cart.UserID, err)
 	}
 
-	var orderID int
-	var createdAt time.Time
-	// err = q.InsertOrderReturning(ctx, userID, total, status, idempotencyKey).Scan(&orderID, &createdAt)
-
-	/*
-		if errors.Is(err, pgx.ErrNoRows) {
-			existing, ferr := s.getOrderByIdempotencyKey(ctx, idempotencyKey)
-			if ferr != nil {
-				return nil, false, ferr
-			}
-			return existing, true, nil
-		}
+	for _, item := range cart.Items {
+		_, err := tx.Exec(ctx,
+			`insert into cart_items (cart_id, item_id, quantity) values ($1, $2, $3)
+			 on conflict (cart_id, item_id) do update set quantity=excluded.quantity`,
+			cartID, item.ItemID, item.Quantity,
+		)
 		if err != nil {
-			return nil, false, err
-		}
-	*/
-	for _, lineItem := range items {
-		if _, err := q.InsertLineItem(ctx, orderID, lineItem.ItemID, lineItem.Price, lineItem.Quantity); err != nil {
-			return nil, false, fmt.Errorf("failed to insert line item %d: %w", lineItem.ItemID, err)
-		}
-		if _, err := q.DecrementItemStock(ctx, lineItem.ItemID, lineItem.Quantity); err != nil {
-			return nil, false, fmt.Errorf("failed to decrement item stock %d: %w", lineItem.ItemID, err)
+			return fmt.Errorf("unable to insert cart item %d: %w", item.ItemID, err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, false, err
+		return fmt.Errorf("unable to commit transaction: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Cart, error) {
+	var cart models.Cart
+	err := s.conn.QueryRow(ctx,
+		"select id, user_id, last_accessed from carts where user_id=$1", userID,
+	).Scan(&cart.ID, &cart.UserID, &cart.LastAccessed)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("unable to fetch cart for user %d: %w", userID, err)
 	}
 
-	return &models.Order{ID: orderID, UserID: userID, Items: items, TotalPrice: total, Status: status, CreatedAt: createdAt}, false, nil
-}
-/*
-func (s *PostgresStore) getOrderItems(ctx context.Context, orderID int) ([]models.LineItem, error) {
-	rows, err := s.conn.Query(ctx, `SELECT item_id, quantity, price FROM order_items WHERE order_id=$1`, orderID)
+	rows, err := s.conn.Query(ctx,
+		"select item_id, quantity from cart_items where cart_id=$1", cart.ID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to run query on GetUserCart items: %w", err)
 	}
 	defer rows.Close()
-	var items []models.LineItem
+
 	for rows.Next() {
 		var li models.LineItem
-		if err := rows.Scan(&li.ItemID, &li.Quantity, &li.Price); err != nil {
-			return nil, err
+		if err := rows.Scan(&li.ItemID, &li.Quantity); err != nil {
+			return nil, fmt.Errorf("unable to scan cart item row: %w", err)
 		}
-		items = append(items, li)
+		cart.Items = append(cart.Items, li)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating cart item rows: %w", err)
+	}
+
+	return &cart, nil
 }
 
+func (s *PostgresStore) DeleteUserCart(ctx context.Context, userID int) error {
+	_, err := s.conn.Exec(ctx, "delete from carts where user_id=$1", userID)
+	if err != nil {
+		fmt.Printf("unable to delete user cart %d: %w", userID, err)
+	}
+
+	return nil
+}
+
+func (s *PostgresStore) UpdateCartItem(ctx context.Context, userID, itemID, quantity int) (bool, error) {
+	tag, err := s.conn.Exec(ctx,
+		`update cart_items set quantity=$1
+		 where item_id=$2 and cart_id = (select id from carts where user_id=$3)`,
+		quantity, itemID, userID)
+	if err != nil {
+		return false, fmt.Errorf("unable to update cart item %d for user %d: %w", itemID, userID, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+func (s *PostgresStore) RemoveCartItem(ctx context.Context, userID, itemID int) (bool, error) {
+	tag, err := s.conn.Exec(ctx,
+		`delete from cart_items
+		 where item_id=$1 and cart_id = (select id from carts where user_id=$2)`,
+		itemID, userID)
+	if err != nil {
+		return false, fmt.Errorf("unable to remove cart item %d for user %d: %w", itemID, userID, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// Order
+
+func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error) {
+	tx, err := s.conn.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	order := &models.Order{UserID: userID, Items: items, TotalPrice: total, Status: status}
+
+	err = tx.QueryRow(ctx,
+		`insert into orders (user_id, total, status) values ($1, $2, $3) returning id`,
+		userID, total, status,
+	).Scan(&order.ID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create order for user %d: %w", userID, err)
+	}
+
+	for _, item := range items {
+		_, err := tx.Exec(ctx,
+			`insert into order_items (order_id, item_id, price, quantity) values ($1, $2, $3, $4)`,
+			order.ID, item.ItemID, item.Price, item.Quantity,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert order item %d: %w", item.ItemID, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("unable to commit transaction: %w", err)
+	}
+	return order, nil
+}
 
 func (s *PostgresStore) GetOrdersByUserID(ctx context.Context, userID int) ([]*models.Order, error) {
 	rows, err := s.conn.Query(ctx,
-		`SELECT id, user_id, total_price, status, created_at FROM orders WHERE user_id=$1 ORDER BY created_at DESC`, userID)
+		"select id, user_id, total, status from orders where user_id=$1", userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get orders for user %d: %w", userID, err)
+		return nil, fmt.Errorf("failed to run query on GetOrdersByUserID: %w", err)
 	}
 	defer rows.Close()
 
 	var orders []*models.Order
 	for rows.Next() {
-		var o models.Order
-		if err := rows.Scan(&o.ID, &o.UserID, &o.TotalPrice, &o.Status, &o.CreatedAt); err != nil {
-			return nil, err
+		var order models.Order
+		if err := rows.Scan(&order.ID, &order.UserID, &order.TotalPrice, &order.Status); err != nil {
+			return nil, fmt.Errorf("unable to scan order row: %w", err)
 		}
-		orders = append(orders, &o)
+		orders = append(orders, &order)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error iterating order rows: %w", err)
 	}
 
-	for _, o := range orders {
-		items, err := s.getOrderItems(ctx, o.ID)
+	for _, order := range orders {
+		itemRows, err := s.conn.Query(ctx,
+			"select item_id, price, quantity from order_items where order_id=$1", order.ID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to fetch items for order %d: %w", order.ID, err)
 		}
-		o.Items = items
+
+		for itemRows.Next() {
+			var li models.LineItem
+			if err := itemRows.Scan(&li.ItemID, &li.Price, &li.Quantity); err != nil {
+				itemRows.Close()
+				return nil, fmt.Errorf("unable to scan order item row: %w", err)
+			}
+			order.Items = append(order.Items, li)
+		}
+		if err := itemRows.Err(); err != nil {
+			itemRows.Close()
+			return nil, fmt.Errorf("error iterating order item rows: %w", err)
+		}
+		itemRows.Close()
 	}
+
 	return orders, nil
 }
-*/
 
-// Refresh Tokens
+// Users
 
-func (s *PostgresStore) SaveRefreshToken(ctx context.Context, userID int, token string) error {
-	_, err := s.DB().InsertRefreshToken(ctx, userID, token)
-	return err
+func (s *PostgresStore) SignUp(ctx context.Context, username string, passwordHash string) (*models.User, error) {
+	var user models.User
+	user.Username = username
+	user.PasswordHash = passwordHash
+
+	err := s.conn.QueryRow(ctx, `insert into users (username, password_hash) values ($1, $2) returning id, created_at`, username, passwordHash).Scan(&user.ID, &user.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create/find cart for user %d: %w")
+	}
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // username alr exists err
+			return nil, fmt.Errorf("username %q already taken", username)
+		}
+		return nil, fmt.Errorf("unable to create user: %w", err)
+	}
+	return &user, nil
 }
 
-func (s *PostgresStore) FindRefreshToken(ctx context.Context, token string) (int, bool, error) {
-	var userID int
-	var active bool
-
-	err := s.DB().GetRefreshToken(ctx, token).Scan(&userID, &active)
+func (s *PostgresStore) Login(ctx context.Context, username, password string) (*models.User, error) {
+	var user models.User
+	err := s.conn.QueryRow(ctx,
+		"select id, username, password_hash, created_at from users where username=$1", username,
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.CreatedAt)
 	if err != nil {
-		return 0, false, err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("invalid username or password")
+		}
+		return nil, fmt.Errorf("unable to fetch user: %w", err)
 	}
 
-	return userID, active, nil
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return nil, fmt.Errorf("invalid username or password")
+	}
+
+	return &user, nil
 }
 
-func (s *PostgresStore) DeactivateRefreshToken(ctx context.Context, token string) error {
-	_, err := s.DB().DeactivateRefreshToken(ctx, token)
-	return err
+func (s *PostgresStore) SaveRefreshToken(ctx context.Context, token string, userID int, expiresAt time.Time) error {
+	_, err := s.conn.Exec(ctx,
+		`insert into refresh_tokens (token, user_id, expires_at) values ($1, $2, $3)`,
+		token, userID, expiresAt)
+	if err != nil {
+		return fmt.Errorf("unable to save refresh token: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) GetRefreshToken(ctx context.Context, token string) (*models.RefreshToken, error) {
+	rt := &models.RefreshToken{Token: token}
+	err := s.conn.QueryRow(ctx,
+		`select user_id, expires_at, revoked, created_at from refresh_tokens where token=$1`, token,
+	).Scan(&rt.UserID, &rt.ExpiresAt, &rt.Revoked, &rt.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("refresh token not found")
+		}
+		return nil, fmt.Errorf("unable to fetch refresh token: %w", err)
+	}
+	return rt, nil
+}
+
+func (s *PostgresStore) RevokeRefreshToken(ctx context.Context, token string) error {
+	_, err := s.conn.Exec(ctx, `update refresh_tokens set revoked=true where token=$1`, token)
+	if err != nil {
+		return fmt.Errorf("unable to revoke refresh token: %w", err)
+	}
+	return nil
+}
+
+// Idempotency
+
+func (s *PostgresStore) GetIdempotencyRecord(ctx context.Context, key string) (*models.IdempotencyRecord, error) {
+	var record models.IdempotencyRecord
+	var bodyJSON []byte
+	err := s.conn.QueryRow(ctx,
+		`select request_hash, status_code, body, created_at from idempotency_records
+		 where key=$1 and created_at > now() - interval '30 minutes'`, key,
+	).Scan(&record.RequestHash, &record.StatusCode, &bodyJSON, &record.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil // not found = not an error
+		}
+		return nil, fmt.Errorf("unable to fetch idempotency record: %w", err)
+	}
+	if err := json.Unmarshal(bodyJSON, &record.Body); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal idempotency body: %w", err)
+	}
+	return &record, nil
+}
+
+func (s *PostgresStore) SaveIdempotencyRecord(ctx context.Context, key, requestHash string, statusCode int, body any) error {
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("unable to marshal idempotency body: %w", err)
+	}
+	_, err = s.conn.Exec(ctx,
+		`insert into idempotency_records (key, request_hash, status_code, body) values ($1, $2, $3, $4)
+		 on conflict (key) do update set request_hash=excluded.request_hash,
+		   status_code=excluded.status_code, body=excluded.body, created_at=now()`,
+		key, requestHash, statusCode, bodyJSON)
+	if err != nil {
+		return fmt.Errorf("unable to save idempotency record: %w", err)
+	}
+	return nil
 }
