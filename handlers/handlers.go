@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"checkout-api/middlewares"
 	"checkout-api/models"
 	"crypto/rand"
 	"crypto/sha256"
@@ -83,7 +84,7 @@ func mockProcessPayment(amount int) PaymentResult {
 }
 
 func (h *Handler) UpsertCartItem(w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromContext(r.Context())
+	userID, ok := middlewares.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -135,7 +136,7 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 	// 	http.Error(w, "invalid X-User-ID header", http.StatusBadRequest)
 	// 	return
 	// }
-	userID, ok := userIDFromContext(r.Context())
+	userID, ok := middlewares.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -165,7 +166,7 @@ func (h *Handler) RemoveCartItem(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 
-	userID, ok := userIDFromContext(r.Context())
+	userID, ok := middlewares.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -197,7 +198,7 @@ func (h *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFromContext(r.Context())
+	userID, ok := middlewares.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return

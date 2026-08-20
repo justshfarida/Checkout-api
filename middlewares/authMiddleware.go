@@ -1,4 +1,4 @@
-package handlers
+package middlewares
 
 import (
 	"context"
@@ -14,26 +14,41 @@ type contextKey string
 
 const userIDContextKey contextKey = "userID"
 
-func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
+func AuthMiddleware(
+	next http.Handler,
+	jwtSecret []byte,
+) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authorizationHeader := r.Header.Get("Authorization")
 
 		if authorizationHeader == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			http.Error(
+				w,
+				"Unauthorized",
+				http.StatusUnauthorized,
+			)
 			return
 		}
 
 		const scheme = "bearer "
 
 		if len(authorizationHeader) < len(scheme) {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			http.Error(
+				w,
+				"Unauthorized",
+				http.StatusUnauthorized,
+			)
 			return
 		}
 
 		userScheme := authorizationHeader[:len(scheme)]
 
 		if !strings.EqualFold(scheme, userScheme) {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			http.Error(
+				w,
+				"Unauthorized",
+				http.StatusUnauthorized,
+			)
 			return
 		}
 
@@ -45,21 +60,38 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			tokenString,
 			&claims,
 			func(token *jwt.Token) (any, error) {
-				return h.jwtSecret, nil
+				return jwtSecret, nil
 			},
 			jwt.WithValidMethods([]string{"HS256"}),
 		)
 
 		if err != nil || !token.Valid {
-			fmt.Printf("failed to parse JWT: %v\n", err)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			fmt.Printf(
+				"failed to parse JWT: %v\n",
+				err,
+			)
+
+			http.Error(
+				w,
+				"Unauthorized",
+				http.StatusUnauthorized,
+			)
 			return
 		}
 
 		userID, err := strconv.Atoi(claims.Subject)
+
 		if err != nil {
-			fmt.Printf("failed to parse user ID: %v\n", err)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			fmt.Printf(
+				"failed to parse user ID: %v\n",
+				err,
+			)
+
+			http.Error(
+				w,
+				"Unauthorized",
+				http.StatusUnauthorized,
+			)
 			return
 		}
 
@@ -69,11 +101,17 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 			userID,
 		)
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(
+			w,
+			r.WithContext(ctx),
+		)
 	})
 }
 
-func userIDFromContext(ctx context.Context) (int, bool) {
+func UserIDFromContext(
+	ctx context.Context,
+) (int, bool) {
 	userID, ok := ctx.Value(userIDContextKey).(int)
+
 	return userID, ok
 }
