@@ -1,7 +1,9 @@
 package main
 
 import (
+	"checkout-api/auth"
 	"checkout-api/handlers"
+	"checkout-api/middleware"
 	"checkout-api/store"
 	"context"
 	"fmt"
@@ -46,10 +48,12 @@ func main() {
 	fmt.Println("successfully connected to db")
 
 	postgresStore := store.NewPostgresStore(conn)
-	handler := handlers.NewHandler(postgresStore, []byte(jwtSecret))
+	authManager := auth.NewManager(jwtSecret)
+	handler := handlers.NewHandler(postgresStore, authManager)
+	requireAuth := middleware.JWTAuth(authManager)
 
 	// Cart
-	http.HandleFunc("/user/cart",
+	http.Handle("/user/cart", requireAuth(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet:
@@ -59,22 +63,23 @@ func main() {
 			default:
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
-		})
-	http.HandleFunc("PATCH /user/cart/items/{id}", handler.UpdateItemQuantity)
-	http.HandleFunc("DELETE /user/cart/items/{id}", handler.DeleteItem)
+		})))
+
+	http.Handle("PATCH /user/cart/items/{id}", requireAuth(http.HandlerFunc(handler.UpdateItemQuantity)))
+	http.Handle("DELETE /user/cart/items/{id}", requireAuth(http.HandlerFunc(handler.DeleteItem)))
 
 	// Items
 	http.HandleFunc("GET /items", handler.GetItems)
 	http.HandleFunc("GET /items/", handler.GetItem)
 
 	// Orders
-	http.HandleFunc("POST /orders", handler.CreateOrder)
+	http.Handle("POST /orders", requireAuth(http.HandlerFunc(handler.CreateOrder)))
 	http.HandleFunc("GET /users/{user_id}/orders", handler.GetOrdersByUserID)
 
 	// Users
 	http.HandleFunc("POST /signup", handler.SignUp)
-	http.HandleFunc("GET /login", handler.Login)
-	http.HandleFunc("GET /token", handler.RefreshToken)
+	http.HandleFunc("POST /login", handler.Login)
+	// http.HandleFunc("GET /token", handler.RefreshToken)
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

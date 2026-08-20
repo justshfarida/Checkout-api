@@ -29,6 +29,6 @@ type SignUpRequest struct {
 }
 
 type LoginRequest struct {
-	username string `json:"username"`
+	Username string `json:"username"`
 	Password string `json:"password"`
 }

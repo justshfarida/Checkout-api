@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"checkout-api/auth"
 	"checkout-api/models"
 	"context"
 	"crypto/sha256"
@@ -42,14 +43,13 @@ type Store interface {
 }
 
 type Handler struct {
-	store     Store
-	jwtSecret []byte
+	store       Store
+	authManager *auth.Manager
 }
 
-func NewHandler(s Store, jwtSecret []byte) *Handler {
-	return &Handler{store: s, jwtSecret: jwtSecret}
+func NewHandler(s Store, authManager *auth.Manager) *Handler {
+	return &Handler{store: s, authManager: authManager}
 }
-
 
 // Items
 
@@ -116,13 +116,19 @@ func (handler *Handler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http
 	}
 	ctx := r.Context()
 
+	userID, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req CreateUserCartRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	existing, err := handler.store.GetUserCart(ctx, req.UserID)
+	existing, err := handler.store.GetUserCart(ctx, userID)
 	if err != nil {
 		http.Error(w, "failed to check existing cart", http.StatusInternalServerError)
 		return
@@ -170,7 +176,7 @@ func (handler *Handler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := UserIDFromContext(r.Context())
+	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -194,6 +200,13 @@ func (handler *Handler) UpdateItemQuantity(writer http.ResponseWriter, request *
 		http.Error(writer, http.StatusText(400), http.StatusBadRequest)
 		return
 	}
+
+	userID, ok := auth.UserIDFromContext(request.Context())
+	if !ok {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	var req updateQuantityRequest
 	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
 		http.Error(writer, "invalid request body", http.StatusBadRequest)
@@ -206,7 +219,7 @@ func (handler *Handler) UpdateItemQuantity(writer http.ResponseWriter, request *
 	}
 
 	ctx := request.Context()
-	found, err := handler.store.UpdateCartItem(ctx, req.UserID, id, req.Quantity)
+	found, err := handler.store.UpdateCartItem(ctx, userID, id, req.Quantity)
 	if err != nil {
 		http.Error(writer, "failed to update cart item", http.StatusInternalServerError)
 		return
@@ -216,7 +229,7 @@ func (handler *Handler) UpdateItemQuantity(writer http.ResponseWriter, request *
 		return
 	}
 
-	cart, err := handler.store.GetUserCart(ctx, req.UserID)
+	cart, err := handler.store.GetUserCart(ctx, userID)
 	if err != nil {
 		http.Error(writer, "failed to fetch updated cart", http.StatusInternalServerError)
 		return
@@ -232,7 +245,7 @@ func (handler *Handler) DeleteItem(writer http.ResponseWriter, request *http.Req
 		return
 	}
 
-	userID, ok := UserIDFromContext(request.Context())
+	userID, ok := auth.UserIDFromContext(request.Context())
 	if !ok {
 		http.Error(writer, "unauthorized", http.StatusUnauthorized)
 		return
@@ -266,7 +279,7 @@ func (handler *Handler) DeleteItem(writer http.ResponseWriter, request *http.Req
 func (handler *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	userID, ok := UserIDFromContext(ctx)
+	userID, ok := auth.UserIDFromContext(ctx)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -420,24 +433,25 @@ func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if req.username == "" || req.Password == "" {
+	if req.Username == "" || req.Password == "" {
 		http.Error(w, "username and password are required", http.StatusBadRequest)
 		return
 	}
 
-	user, err := handler.store.Login(ctx, req.username, req.Password)
+	user, err := handler.store.Login(ctx, req.Username, req.Password)
 	if err != nil {
 		http.Error(w, "invalid username or password", http.StatusUnauthorized)
 		return
 	}
 
-	accessToken, err := GenerateAccessToken(user.ID, handler.jwtSecret)
+	accessToken, err := handler.authManager.GenerateAccessToken(user.ID)
+
 	if err != nil {
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return
 	}
 
-	refreshToken, err := GenerateRefreshToken()
+	refreshToken, err := handler.authManager.GenerateRefreshToken()
 	if err != nil {
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return
@@ -477,19 +491,17 @@ func (handler *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rotation: the old token is dead the moment it's used, even if it
-	// gets reused or leaked later — this limits the damage of a stolen token.
 	if err := handler.store.RevokeRefreshToken(ctx, oldToken); err != nil {
 		http.Error(w, "failed to rotate token", http.StatusInternalServerError)
 		return
 	}
 
-	newAccessToken, err := GenerateAccessToken(rt.UserID, handler.jwtSecret)
+	newAccessToken, err := handler.authManager.GenerateAccessToken(rt.UserID)
 	if err != nil {
 		http.Error(w, "failed to create token", http.StatusInternalServerError)
 		return
 	}
-	newRefreshToken, err := GenerateRefreshToken()
+	newRefreshToken, err := handler.authManager.GenerateRefreshToken()
 	if err != nil {
 		http.Error(w, "failed to create token", http.StatusInternalServerError)
 		return
