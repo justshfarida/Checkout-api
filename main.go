@@ -16,13 +16,6 @@ import (
 )
 
 func main() {
-	/*
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			fmt.Printf("CATCH-ALL: %s %s\n", r.Method, r.URL.Path)
-			http.NotFound(w, r)
-		})
-	*/
-
 	if err := godotenv.Load(); err != nil {
 		log.Println("no .env file found, relying on real environment variables")
 	}
@@ -42,8 +35,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	// defer conn.Close()
 
 	fmt.Println("successfully connected to db")
 
@@ -81,5 +72,11 @@ func main() {
 	http.HandleFunc("POST /login", handler.Login)
 	// http.HandleFunc("GET /token", handler.RefreshToken)
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	allowedOrigin := os.Getenv("LOCAL_SERVER")
+	if allowedOrigin == "" {
+		allowedOrigin = "http://localhost:5173"
+	}
+	corsHandler := middleware.CORS(allowedOrigin)(http.DefaultServeMux)
+
+	log.Fatal(http.ListenAndServe(":8080", corsHandler))
 }

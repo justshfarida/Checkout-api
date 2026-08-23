@@ -1,4 +1,3 @@
-// middleware/jwt.go
 package middleware
 
 import (

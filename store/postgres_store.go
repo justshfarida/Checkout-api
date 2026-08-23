@@ -117,7 +117,10 @@ func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Ca
 	}
 
 	rows, err := s.conn.Query(ctx,
-		"select item_id, quantity from cart_items where cart_id=$1", cart.ID)
+		`select ci.item_id, ci.quantity, i.name, i.price
+         from cart_items ci
+         join items i on i.id = ci.item_id
+         where ci.cart_id=$1`, cart.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run query on GetUserCart items: %w", err)
 	}
@@ -125,7 +128,7 @@ func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Ca
 
 	for rows.Next() {
 		var li models.LineItem
-		if err := rows.Scan(&li.ItemID, &li.Quantity); err != nil {
+		if err := rows.Scan(&li.ItemID, &li.Quantity, &li.Name, &li.Price); err != nil {
 			return nil, fmt.Errorf("unable to scan cart item row: %w", err)
 		}
 		cart.Items = append(cart.Items, li)
@@ -225,14 +228,17 @@ func (s *PostgresStore) GetOrdersByUserID(ctx context.Context, userID int) ([]*m
 
 	for _, order := range orders {
 		itemRows, err := s.conn.Query(ctx,
-			"select item_id, price, quantity from order_items where order_id=$1", order.ID)
+			`select oi.item_id, oi.price, oi.quantity, i.name
+             from order_items oi
+             join items i on i.id = oi.item_id
+             where oi.order_id=$1`, order.ID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch items for order %d: %w", order.ID, err)
 		}
 
 		for itemRows.Next() {
 			var li models.LineItem
-			if err := itemRows.Scan(&li.ItemID, &li.Price, &li.Quantity); err != nil {
+			if err := itemRows.Scan(&li.ItemID, &li.Price, &li.Quantity, &li.Name); err != nil {
 				itemRows.Close()
 				return nil, fmt.Errorf("unable to scan order item row: %w", err)
 			}

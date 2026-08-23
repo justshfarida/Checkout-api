@@ -13,9 +13,10 @@ type Item struct {
 }
 
 type LineItem struct {
-	ItemID   int `json:"item_id"`
-	Quantity int `json:"quantity"`
-	Price    int `json:"price"`
+	ItemID   int    `json:"item_id"`
+	Name     string `json:"name"`
+	Quantity int    `json:"quantity"`
+	Price    int    `json:"price"`
 }
 
 type Order struct {
