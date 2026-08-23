@@ -55,3 +55,16 @@ type AuthResponse struct {
 	JWT          string `json:"jwt"`
 	RefreshToken string `json:"refresh_token"`
 }
+type OrderItemResponse struct {
+	ItemID   int    `json:"item_id"`
+	Name     string `json:"name"`
+	Quantity int    `json:"quantity"`
+	Price    int    `json:"price"`
+}
+
+type UserOrderResponse struct {
+	ID     int                 `json:"id"`
+	Items  []OrderItemResponse `json:"items"`
+	Total  int                 `json:"total"`
+	Status string              `json:"status"`
+}

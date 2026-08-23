@@ -273,3 +273,98 @@ func (s *PostgresStore) SaveRefreshToken(
 
 	return nil
 }
+func (s *PostgresStore) GetOrdersByUserID(
+	ctx context.Context,
+	userID int,
+) ([]models.UserOrder, error) {
+	rows, err := s.DB().GetOrdersByUserID(
+		ctx,
+		userID,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to get orders for user %d: %w",
+			userID,
+			err,
+		)
+	}
+
+	defer rows.Close()
+
+	orders := make([]models.UserOrder, 0)
+
+	orderIndexes := make(map[int]int)
+
+	for rows.Next() {
+		var (
+			orderID     int
+			orderUserID int
+			total       int
+			status      string
+
+			itemID   *int
+			itemName *string
+			price    *int
+			quantity *int
+		)
+
+		err := rows.Scan(
+			&orderID,
+			&orderUserID,
+			&total,
+			&status,
+			&itemID,
+			&itemName,
+			&price,
+			&quantity,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to scan order row: %w",
+				err,
+			)
+		}
+
+		index, exists := orderIndexes[orderID]
+
+		if !exists {
+			orders = append(
+				orders,
+				models.UserOrder{
+					ID:     orderID,
+					UserID: orderUserID,
+					Total:  total,
+					Status: status,
+					Items:  []models.OrderItem{},
+				},
+			)
+
+			index = len(orders) - 1
+
+			orderIndexes[orderID] = index
+		}
+
+		if itemID != nil {
+			orders[index].Items = append(
+				orders[index].Items,
+				models.OrderItem{
+					ItemID:   *itemID,
+					Name:     *itemName,
+					Price:    *price,
+					Quantity: *quantity,
+				},
+			)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(
+			"failed while reading orders: %w",
+			err,
+		)
+	}
+
+	return orders, nil
+}

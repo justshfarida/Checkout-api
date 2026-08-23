@@ -125,3 +125,30 @@ func (q *Query) DeactivateRefreshToken(
 		tokenHash,
 	)
 }
+func (q *Query) GetOrdersByUserID(
+	ctx context.Context,
+	userID int,
+) (pgx.Rows, error) {
+	return q.DBTX.Query(
+		ctx,
+		`
+		SELECT
+			o.id,
+			o.user_id,
+			o.total,
+			o.status,
+			li.item_id,
+			i.name,
+			li.price,
+			li.quantity
+		FROM orders o
+		LEFT JOIN line_items li
+			ON li.order_id = o.id
+		LEFT JOIN items i
+			ON i.id = li.item_id
+		WHERE o.user_id = $1
+		ORDER BY o.created_at DESC, li.id
+		`,
+		userID,
+	)
+}

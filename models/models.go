@@ -21,11 +21,12 @@ type LineItem struct {
 
 // Order represents a completed purchase.
 type Order struct {
-	ID     int        `json:"id"`
-	UserID int        `json:"user_id"`
-	Items  []LineItem `json:"line_items"`
-	Total  int        `json:"total"`
-	Status string     `json:"status"` // pending, paid, failed
+	ID        int        `json:"id"`
+	UserID    int        `json:"user_id"`
+	Items     []LineItem `json:"line_items"`
+	Total     int        `json:"total"`
+	Status    string     `json:"status"` // pending, paid, failed
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 // Cart is a single cart row representing one item in a user's cart.
@@ -50,4 +51,17 @@ type User struct {
 	ID    int    `json:"id"`
 	Email string `json:"email"`
 	Hash  []byte
+}
+type OrderItem struct {
+	ItemID   int
+	Name     string
+	Price    int
+	Quantity int
+}
+type UserOrder struct {
+	ID     int
+	UserID int
+	Total  int
+	Status string
+	Items  []OrderItem
 }

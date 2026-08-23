@@ -45,6 +45,10 @@ type ItemStore interface {
 		newTokenHash []byte,
 		newExpiresAt time.Time,
 	) (int, error)
+	GetOrdersByUserID(
+		ctx context.Context,
+		userID int,
+	) ([]models.UserOrder, error)
 }
 
 // Handler holds dependencies for HTTP handlers.
@@ -550,4 +554,81 @@ func generateRefreshToken() (string, error) {
 func hashRefreshToken(token string) []byte {
 	hash := sha256.Sum256([]byte(token))
 	return hash[:]
+}
+func (h *Handler) GetUserOrders(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok :=
+		middlewares.UserIDFromContext(
+			r.Context(),
+		)
+
+	if !ok {
+		http.Error(
+			w,
+			"Unauthorized",
+			http.StatusUnauthorized,
+		)
+
+		return
+	}
+
+	orders, err :=
+		h.store.GetOrdersByUserID(
+			r.Context(),
+			userID,
+		)
+
+	if err != nil {
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+
+		return
+	}
+
+	response := make(
+		[]UserOrderResponse,
+		0,
+		len(orders),
+	)
+
+	for _, order := range orders {
+		items := make(
+			[]OrderItemResponse,
+			0,
+			len(order.Items),
+		)
+
+		for _, item := range order.Items {
+			items = append(
+				items,
+				OrderItemResponse{
+					ItemID:   item.ItemID,
+					Name:     item.Name,
+					Quantity: item.Quantity,
+					Price:    item.Price,
+				},
+			)
+		}
+
+		response = append(
+			response,
+			UserOrderResponse{
+				ID:     order.ID,
+				Items:  items,
+				Total:  order.Total,
+				Status: order.Status,
+			},
+		)
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		response,
+	)
 }

@@ -96,7 +96,15 @@ func main() {
 			jwtSecretBytes,
 		),
 	)
-
+	http.Handle(
+		"GET /user/orders",
+		middlewares.AuthMiddleware(
+			http.HandlerFunc(
+				h.GetUserOrders,
+			),
+			jwtSecretBytes,
+		),
+	)
 	// --------------------
 	// ITEMS
 	// --------------------
