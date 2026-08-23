@@ -128,16 +128,6 @@ func (handler *Handler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http
 		return
 	}
 
-	existing, err := handler.store.GetUserCart(ctx, userID)
-	if err != nil {
-		http.Error(w, "failed to check existing cart", http.StatusInternalServerError)
-		return
-	}
-	if existing != nil && len(existing.Items) > 0 {
-		http.Error(w, "cart already exists", http.StatusConflict)
-		return
-	}
-
 	if len(req.Items) == 0 {
 		http.Error(w, "can't create empty cart", http.StatusBadRequest)
 		return
@@ -158,8 +148,8 @@ func (handler *Handler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http
 	}
 
 	userCart := &models.Cart{
-		ID:     fmt.Sprintf("cart_%d", req.UserID),
-		UserID: req.UserID,
+		ID:     fmt.Sprintf("cart_%d", userID),
+		UserID: userID, // use the authenticated user, not the request body — closes the earlier-flagged trust gap too
 		Items:  orderItems,
 	}
 

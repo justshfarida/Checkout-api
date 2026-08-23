@@ -87,10 +87,19 @@ func (s *PostgresStore) CreateUserCartAndAddItems(ctx context.Context, cart *mod
 		return fmt.Errorf("unable to create/find cart for user %d: %w", cart.UserID, err)
 	}
 
+	_, err = tx.Exec(ctx, `delete from cart_items where cart_id=$1`, cartID)
+	if err != nil {
+		return fmt.Errorf("unable to clear existing cart items: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `delete from cart_items where cart_id=$1`, cartID)
+	if err != nil {
+		return fmt.Errorf("unable to clear existing cart items: %w", err)
+	}
+	fmt.Printf("cleared %d old cart items for cart %d\n", tag.RowsAffected(), cartID)
+
 	for _, item := range cart.Items {
 		_, err := tx.Exec(ctx,
-			`insert into cart_items (cart_id, item_id, quantity) values ($1, $2, $3)
-			 on conflict (cart_id, item_id) do update set quantity=excluded.quantity`,
+			`insert into cart_items (cart_id, item_id, quantity) values ($1, $2, $3)`,
 			cartID, item.ItemID, item.Quantity,
 		)
 		if err != nil {
