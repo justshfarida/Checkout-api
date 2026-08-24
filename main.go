@@ -4,13 +4,14 @@ import (
 	"checkout-api/handlers"
 	"checkout-api/middlewares"
 	"checkout-api/store"
+
 	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
@@ -29,28 +30,30 @@ func main() {
 
 	ctx := context.Background()
 
-	conn, err := pgx.Connect(
+	// Create PostgreSQL connection pool
+	pool, err := pgxpool.New(
 		ctx,
 		databaseURL,
 	)
-
 	if err != nil {
 		log.Fatalf(
-			"failed to connect to database: %v",
+			"failed to create database pool: %v",
 			err,
 		)
 	}
 
-	defer conn.Close(ctx)
+	defer pool.Close()
 
-	if err := conn.Ping(ctx); err != nil {
+	// Check that database is reachable
+	if err := pool.Ping(ctx); err != nil {
 		log.Fatalf(
 			"failed to ping database: %v",
 			err,
 		)
 	}
 
-	postgresStore := store.NewPostgresStore(conn)
+	postgresStore :=
+		store.NewPostgresStore(pool)
 
 	h := handlers.NewHandler(
 		postgresStore,
@@ -64,7 +67,9 @@ func main() {
 	http.Handle(
 		"GET /user/cart",
 		middlewares.AuthMiddleware(
-			http.HandlerFunc(h.GetUserCart),
+			http.HandlerFunc(
+				h.GetUserCart,
+			),
 			jwtSecretBytes,
 		),
 	)
@@ -72,7 +77,9 @@ func main() {
 	http.Handle(
 		"PATCH /user/cart/items/{item_id}",
 		middlewares.AuthMiddleware(
-			http.HandlerFunc(h.UpsertCartItem),
+			http.HandlerFunc(
+				h.UpsertCartItem,
+			),
 			jwtSecretBytes,
 		),
 	)
@@ -80,7 +87,9 @@ func main() {
 	http.Handle(
 		"DELETE /user/cart/items/{item_id}",
 		middlewares.AuthMiddleware(
-			http.HandlerFunc(h.RemoveCartItem),
+			http.HandlerFunc(
+				h.RemoveCartItem,
+			),
 			jwtSecretBytes,
 		),
 	)
@@ -92,10 +101,13 @@ func main() {
 	http.Handle(
 		"POST /orders",
 		middlewares.AuthMiddleware(
-			http.HandlerFunc(h.CreateOrder),
+			http.HandlerFunc(
+				h.CreateOrder,
+			),
 			jwtSecretBytes,
 		),
 	)
+
 	http.Handle(
 		"GET /user/orders",
 		middlewares.AuthMiddleware(
@@ -105,6 +117,7 @@ func main() {
 			jwtSecretBytes,
 		),
 	)
+
 	// --------------------
 	// ITEMS
 	// --------------------
@@ -138,7 +151,13 @@ func main() {
 		h.IssueJWT,
 	)
 
-	fmt.Println("Server starting on :8080")
+	// --------------------
+	// SERVER
+	// --------------------
+
+	fmt.Println(
+		"Server starting on :8080",
+	)
 
 	log.Fatal(
 		http.ListenAndServe(
