@@ -52,8 +52,7 @@ type CartItemResponse struct {
 }
 
 type AuthResponse struct {
-	JWT          string `json:"jwt"`
-	RefreshToken string `json:"refresh_token"`
+	JWT string `json:"jwt"`
 }
 type OrderItemResponse struct {
 	ItemID   int    `json:"item_id"`

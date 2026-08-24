@@ -75,7 +75,7 @@ type IdempotencyRecord struct {
 
 // mockProcessPayment simulates a payment provider call.
 func mockProcessPayment(amount int) PaymentResult {
-	if amount > 0 && amount < 1000000 {
+	if amount > 0 && amount < 40 {
 		return PaymentResult{
 			Success:       true,
 			TransactionID: fmt.Sprintf("txn_%d", time.Now().UnixNano()),
@@ -336,72 +336,48 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-func (h *Handler) LoginUser(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) LoginUser(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
 	var req AuthRequest
+
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		http.Error(
+			w,
+			"invalid body",
+			http.StatusBadRequest,
+		)
 		return
 	}
 
-	user, err := h.store.FindUserByEmail(r.Context(), req.Email)
+	user, err :=
+		h.store.FindUserByEmail(
+			r.Context(),
+			req.Email,
+		)
+
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			writeJSON(w, http.StatusUnprocessableEntity, ErrorMessageResponse{
-				Message: "user does not exist",
-			})
+		if errors.Is(
+			err,
+			pgx.ErrNoRows,
+		) {
+			writeJSON(
+				w,
+				http.StatusUnprocessableEntity,
+				ErrorMessageResponse{
+					Message: "user does not exist",
+				},
+			)
 			return
 		}
-		fmt.Printf("cannot query %q", err.Error())
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
 
-	err = bcrypt.CompareHashAndPassword(user.Hash, []byte(req.Password))
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	// issue jwt
-	fifteenAfter := time.Now().Add(15 * time.Minute)
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		ExpiresAt: jwt.NewNumericDate(fifteenAfter),
-		Subject:   strconv.Itoa(user.ID),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
-	})
-	//sign kwt with our secret key in env
-	signedJWT, err := token.SignedString(h.jwtSecret)
-	if err != nil {
-		fmt.Printf("cannot generate signed string %q", err.Error())
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	// store session(refresh token)
-	// TODO: do it yourself
-	// generate a random string(bonus: if you use a CSPRNG to generate a random sequence of bytes)
-	// insert into refresh_tokens (token_value, is_active) values ("sOmERANdomlYGeNERATEDstRing", 1)
-	refreshToken, err := generateRefreshToken()
-	if err != nil {
-		fmt.Printf("cannot generate refresh token: %v\n", err)
-		http.Error(
-			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+		fmt.Printf(
+			"cannot query %q\n",
+			err.Error(),
 		)
 
-		return
-	}
-	refreshTokenHash := hashRefreshToken(refreshToken)
-	refreshTokenExpiresAt := time.Now().Add(30 * 24 * time.Hour)
-
-	if err := h.store.SaveRefreshToken(
-		r.Context(),
-		user.ID,
-		refreshTokenHash,
-		refreshTokenExpiresAt,
-	); err != nil {
-		fmt.Printf("cannot save refresh token: %v\n", err)
 		http.Error(
 			w,
 			"Internal Server Error",
@@ -410,10 +386,151 @@ func (h *Handler) LoginUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, AuthResponse{
-		JWT:          signedJWT,
-		RefreshToken: refreshToken,
-	})
+	err = bcrypt.CompareHashAndPassword(
+		user.Hash,
+		[]byte(req.Password),
+	)
+
+	if err != nil {
+		http.Error(
+			w,
+			"Unauthorized",
+			http.StatusUnauthorized,
+		)
+		return
+	}
+
+	// --------------------
+	// ACCESS TOKEN
+	// --------------------
+
+	accessExpiresAt :=
+		time.Now().Add(
+			15 * time.Minute,
+		)
+
+	token := jwt.NewWithClaims(
+		jwt.SigningMethodHS256,
+		jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(
+				accessExpiresAt,
+			),
+
+			Subject: strconv.Itoa(
+				user.ID,
+			),
+
+			IssuedAt: jwt.NewNumericDate(
+				time.Now(),
+			),
+		},
+	)
+
+	signedJWT, err :=
+		token.SignedString(
+			h.jwtSecret,
+		)
+
+	if err != nil {
+		fmt.Printf(
+			"cannot generate signed JWT: %v\n",
+			err,
+		)
+
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	// --------------------
+	// REFRESH TOKEN
+	// --------------------
+
+	refreshToken, err :=
+		generateRefreshToken()
+
+	if err != nil {
+		fmt.Printf(
+			"cannot generate refresh token: %v\n",
+			err,
+		)
+
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	refreshTokenHash :=
+		hashRefreshToken(
+			refreshToken,
+		)
+
+	refreshTokenExpiresAt :=
+		time.Now().Add(
+			30 * 24 * time.Hour,
+		)
+
+	err =
+		h.store.SaveRefreshToken(
+			r.Context(),
+			user.ID,
+			refreshTokenHash,
+			refreshTokenExpiresAt,
+		)
+
+	if err != nil {
+		fmt.Printf(
+			"cannot save refresh token: %v\n",
+			err,
+		)
+
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	// --------------------
+	// HTTPONLY COOKIE
+	// --------------------
+
+	http.SetCookie(
+		w,
+		&http.Cookie{
+			Name:     "refresh_token",
+			Value:    refreshToken,
+			Path:     "/",
+			HttpOnly: true,
+
+			// localhost uses HTTP.
+			// In production with HTTPS,
+			// change this to true.
+			Secure: false,
+
+			SameSite: http.SameSiteLaxMode,
+
+			Expires: refreshTokenExpiresAt,
+
+			MaxAge: 30 * 24 * 60 * 60,
+		},
+	)
+
+	// Frontend receives ONLY access JWT.
+	writeJSON(
+		w,
+		http.StatusOK,
+		AuthResponse{
+			JWT: signedJWT,
+		},
+	)
 }
 
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -457,29 +574,65 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, nil)
 }
 
-func (h *Handler) IssueJWT(w http.ResponseWriter, r *http.Request) {
-	// TODO: implement issueing of new JWT with refresh token
-	// check if refresh_token exists in the db and still active
-	// generate a new JWT
-	// generate a new random string (bonus: if you use a CSPRNG to generate a random sequence of bytes) as refresh_token
-	// save new refresh token in db
-	// deactivate old refresh token
-	oldRefreshToken := r.Header.Get("Refresh-Token")
-	if oldRefreshToken == "" {
+func (h *Handler) IssueJWT(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	// --------------------
+	// READ REFRESH TOKEN COOKIE
+	// --------------------
+
+	cookie, err :=
+		r.Cookie(
+			"refresh_token",
+		)
+
+	if err != nil {
+		if errors.Is(
+			err,
+			http.ErrNoCookie,
+		) {
+			http.Error(
+				w,
+				"Refresh token is missing",
+				http.StatusUnauthorized,
+			)
+			return
+		}
+
 		http.Error(
 			w,
-			"Refresh-Token header is required",
+			"Unauthorized",
 			http.StatusUnauthorized,
 		)
 		return
 	}
 
-	newRefreshToken, err := generateRefreshToken()
+	oldRefreshToken :=
+		cookie.Value
+
+	if oldRefreshToken == "" {
+		http.Error(
+			w,
+			"Refresh token is missing",
+			http.StatusUnauthorized,
+		)
+		return
+	}
+
+	// --------------------
+	// GENERATE NEW REFRESH TOKEN
+	// --------------------
+
+	newRefreshToken, err :=
+		generateRefreshToken()
+
 	if err != nil {
 		fmt.Printf(
 			"failed to generate refresh token: %v\n",
 			err,
 		)
+
 		http.Error(
 			w,
 			"Internal Server Error",
@@ -488,21 +641,39 @@ func (h *Handler) IssueJWT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	oldTokenHash := hashRefreshToken(oldRefreshToken)
-	newTokenHash := hashRefreshToken(newRefreshToken)
-	newRefreshExpiresAt := time.Now().Add(30 * 24 * time.Hour)
+	oldTokenHash :=
+		hashRefreshToken(
+			oldRefreshToken,
+		)
 
-	userID, err := h.store.RotateRefreshToken(
-		r.Context(),
-		oldTokenHash,
-		newTokenHash,
-		newRefreshExpiresAt,
-	)
+	newTokenHash :=
+		hashRefreshToken(
+			newRefreshToken,
+		)
+
+	newRefreshExpiresAt :=
+		time.Now().Add(
+			30 * 24 * time.Hour,
+		)
+
+	// --------------------
+	// ROTATE REFRESH TOKEN
+	// --------------------
+
+	userID, err :=
+		h.store.RotateRefreshToken(
+			r.Context(),
+			oldTokenHash,
+			newTokenHash,
+			newRefreshExpiresAt,
+		)
+
 	if err != nil {
 		fmt.Printf(
 			"failed to rotate refresh token: %v\n",
 			err,
 		)
+
 		http.Error(
 			w,
 			"Invalid or expired refresh token",
@@ -511,20 +682,43 @@ func (h *Handler) IssueJWT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessExpiresAt := time.Now().Add(15 * time.Minute)
+	// --------------------
+	// GENERATE NEW ACCESS JWT
+	// --------------------
+
+	accessExpiresAt :=
+		time.Now().Add(
+			15 * time.Minute,
+		)
 
 	token := jwt.NewWithClaims(
 		jwt.SigningMethodHS256,
 		jwt.RegisteredClaims{
-			Subject:   strconv.Itoa(userID),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ExpiresAt: jwt.NewNumericDate(accessExpiresAt),
+			Subject: strconv.Itoa(
+				userID,
+			),
+
+			IssuedAt: jwt.NewNumericDate(
+				time.Now(),
+			),
+
+			ExpiresAt: jwt.NewNumericDate(
+				accessExpiresAt,
+			),
 		},
 	)
 
-	signedJWT, err := token.SignedString(h.jwtSecret)
+	signedJWT, err :=
+		token.SignedString(
+			h.jwtSecret,
+		)
+
 	if err != nil {
-		fmt.Printf("failed to sign JWT: %v\n", err)
+		fmt.Printf(
+			"failed to sign JWT: %v\n",
+			err,
+		)
+
 		http.Error(
 			w,
 			"Internal Server Error",
@@ -533,11 +727,35 @@ func (h *Handler) IssueJWT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, AuthResponse{
-		JWT:          signedJWT,
-		RefreshToken: newRefreshToken,
-	})
+	// --------------------
+	// REPLACE OLD COOKIE
+	// --------------------
 
+	http.SetCookie(
+		w,
+		&http.Cookie{
+			Name:     "refresh_token",
+			Value:    newRefreshToken,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   false,
+
+			SameSite: http.SameSiteLaxMode,
+
+			Expires: newRefreshExpiresAt,
+
+			MaxAge: 30 * 24 * 60 * 60,
+		},
+	)
+
+	// Return ONLY new access JWT.
+	writeJSON(
+		w,
+		http.StatusOK,
+		AuthResponse{
+			JWT: signedJWT,
+		},
+	)
 }
 func generateRefreshToken() (string, error) {
 	randomBytes := make([]byte, 32)
