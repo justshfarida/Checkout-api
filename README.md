@@ -41,7 +41,7 @@ curl -X POST http://localhost:8080/orders \
 ## Running Tests
 
 ```bash
-go test -v ./handlers/
+go test -v ./controllers/
 ```
 
 ## Branch Guide

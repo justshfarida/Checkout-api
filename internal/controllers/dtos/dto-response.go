@@ -1,4 +1,4 @@
-package handlers
+package dtos
 
 import (
 	"checkout-api/internal/models"

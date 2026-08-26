@@ -1,4 +1,4 @@
-package handlers
+package dtos
 
 type CreateUserCartRequest struct {
 	UserID int `json:"user_id"`

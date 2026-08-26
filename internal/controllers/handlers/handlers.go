@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"checkout-api/internal/auth"
+	"checkout-api/internal/controllers"
+	"checkout-api/internal/controllers/dtos"
 	"checkout-api/internal/models"
 	"context"
 	"crypto/sha256"
@@ -63,6 +65,7 @@ func (handler *Handler) GetItems(writer http.ResponseWriter, request *http.Reque
 	category := query.Get("category")
 	sortBy := query.Get("sort")
 
+	// BUSINESS LOGIC
 	if category != "" {
 		filtered := make([]*models.Item, 0, len(items))
 		for _, item := range items {
@@ -83,6 +86,7 @@ func (handler *Handler) GetItems(writer http.ResponseWriter, request *http.Reque
 			return items[i].Name < items[j].Name
 		})
 	}
+	//
 
 	writer.Header().Set("Cache-Control", "public, max-age=60")
 	writeJSON(writer, http.StatusOK, items)
@@ -122,7 +126,7 @@ func (handler *Handler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http
 		return
 	}
 
-	var req CreateUserCartRequest
+	var req dtos.CreateUserCartRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
@@ -197,7 +201,9 @@ func (handler *Handler) UpdateItemQuantity(writer http.ResponseWriter, request *
 		return
 	}
 
-	var req updateQuantityRequest
+	// BUSINESS
+
+	var req controllers.updateQuantityRequest
 	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
 		http.Error(writer, "invalid request body", http.StatusBadRequest)
 		return
@@ -207,7 +213,7 @@ func (handler *Handler) UpdateItemQuantity(writer http.ResponseWriter, request *
 		http.Error(writer, "quantity must be greater than 0", http.StatusBadRequest)
 		return
 	}
-
+	//
 	ctx := request.Context()
 	found, err := handler.store.UpdateCartItem(ctx, userID, id, req.Quantity)
 	if err != nil {
@@ -313,6 +319,7 @@ func (handler *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// BUSINESS LOGIC
 	total := 0
 	orderItems := make([]models.LineItem, 0, len(cart.Items))
 	for _, item := range cart.Items {
@@ -334,8 +341,8 @@ func (handler *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			ItemID: item.ItemID, Quantity: item.Quantity, Price: storeItem.Price,
 		})
 	}
-
-	var paymentResult PaymentResult
+	//
+	var paymentResult dtos.PaymentResult
 	success := retryWithBackoff(3, func() (bool, error) {
 		paymentResult = mockProcessPayment(total)
 		return paymentResult.Success, nil
@@ -389,7 +396,7 @@ func (handler *Handler) GetOrdersByUserID(w http.ResponseWriter, r *http.Request
 func (handler *Handler) SignUp(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req SignUpRequest
+	var req dtos.SignUpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
@@ -418,7 +425,7 @@ func (handler *Handler) SignUp(w http.ResponseWriter, r *http.Request) {
 func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req LoginRequest
+	var req dtos.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
@@ -451,7 +458,7 @@ func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, LoginResponse{
+	writeJSON(w, http.StatusOK, dtos.LoginResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		User:         user,
@@ -501,13 +508,16 @@ func (handler *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, LoginResponse{
+	writeJSON(w, http.StatusOK, dtos.LoginResponse{
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshToken,
 	})
 }
 
 // Retry  with backoff
+
+// BUSINESS
+
 func retryWithBackoff(maxRetries int, fn func() (bool, error)) bool {
 	baseDelay := 100 * time.Millisecond
 	maxDelay := 400 * time.Millisecond
@@ -529,13 +539,15 @@ func retryWithBackoff(maxRetries int, fn func() (bool, error)) bool {
 	return false
 }
 
-func mockProcessPayment(amount int) PaymentResult {
+// BUSINESS
+
+func mockProcessPayment(amount int) dtos.PaymentResult {
 	if amount > 0 && amount < 1000000 {
-		return PaymentResult{
+		return dtos.PaymentResult{
 			Success: true,
 		}
 	}
-	return PaymentResult{
+	return dtos.PaymentResult{
 		Success: false,
 		Error:   "Payment declined",
 	}

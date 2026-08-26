@@ -2,8 +2,8 @@ package main
 
 import (
 	"checkout-api/internal/auth"
-	"checkout-api/internal/handlers"
-	"checkout-api/internal/middleware"
+	"checkout-api/internal/controllers/handlers"
+	middleware2 "checkout-api/internal/controllers/middleware"
 	"checkout-api/repository"
 	"context"
 	"fmt"
@@ -41,7 +41,7 @@ func main() {
 	postgresStore := repository.NewPostgresStore(conn)
 	authManager := auth.NewManager(jwtSecret)
 	handler := handlers.NewHandler(postgresStore, authManager)
-	requireAuth := middleware.JWTAuth(authManager)
+	requireAuth := middleware2.JWTAuth(authManager)
 
 	// Cart
 	http.Handle("/user/cart", requireAuth(http.HandlerFunc(
@@ -76,7 +76,7 @@ func main() {
 	if allowedOrigin == "" {
 		allowedOrigin = "http://localhost:5173"
 	}
-	corsHandler := middleware.CORS(allowedOrigin)(http.DefaultServeMux)
+	corsHandler := middleware2.CORS(allowedOrigin)(http.DefaultServeMux)
 
 	log.Fatal(http.ListenAndServe(":8080", corsHandler))
 }
