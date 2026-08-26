@@ -1,10 +1,9 @@
 package middleware
 
 import (
+	"checkout-api/internal/auth"
 	"net/http"
 	"strings"
-
-	"checkout-api/auth"
 )
 
 func JWTAuth(manager *auth.Manager) func(http.Handler) http.Handler {

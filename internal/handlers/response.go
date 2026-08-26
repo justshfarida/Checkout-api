@@ -1,6 +1,8 @@
 package handlers
 
-import "checkout-api/models"
+import (
+	"checkout-api/internal/models"
+)
 
 type PaymentResult struct {
 	Success       bool   `json:"success"`

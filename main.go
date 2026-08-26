@@ -1,10 +1,10 @@
 package main
 
 import (
-	"checkout-api/auth"
-	"checkout-api/handlers"
-	"checkout-api/middleware"
-	"checkout-api/store"
+	"checkout-api/internal/auth"
+	"checkout-api/internal/handlers"
+	"checkout-api/internal/middleware"
+	"checkout-api/repository"
 	"context"
 	"fmt"
 	"log"
@@ -38,7 +38,7 @@ func main() {
 
 	fmt.Println("successfully connected to db")
 
-	postgresStore := store.NewPostgresStore(conn)
+	postgresStore := repository.NewPostgresStore(conn)
 	authManager := auth.NewManager(jwtSecret)
 	handler := handlers.NewHandler(postgresStore, authManager)
 	requireAuth := middleware.JWTAuth(authManager)

@@ -1,17 +1,17 @@
 package handlers
 
 import (
+	"checkout-api/internal/models"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"checkout-api/models"
-	"checkout-api/store"
+	"checkout-api/repository"
 )
 
 func TestGetItems(t *testing.T) {
-	s := store.NewStore()
+	s := repository.NewStore()
 	h := NewHandler(s)
 
 	tests := []struct {
@@ -51,7 +51,7 @@ func TestGetItems(t *testing.T) {
 }
 
 func TestGetItem(t *testing.T) {
-	s := store.NewStore()
+	s := repository.NewStore()
 	h := NewHandler(s)
 
 	tests := []struct {
@@ -143,7 +143,7 @@ func TestCreateOrder(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := store.NewStore()
+			s := repository.NewStore()
 			h := NewHandler(s)
 
 			req := httptest.NewRequest(tt.method, "/orders", strings.NewReader(tt.body))
@@ -167,7 +167,7 @@ func TestCreateUserCartAndAddItems(t *testing.T) {
 		name       string
 		method     string
 		body       string
-		setup      func(s *store.Store)
+		setup      func(s *repository.Store)
 		wantStatus int
 		wantBody   string
 	}{
@@ -182,7 +182,7 @@ func TestCreateUserCartAndAddItems(t *testing.T) {
 			name:   "cart already exists",
 			method: http.MethodPost,
 			body:   `{"user_id":1,"items":[{"item_id":1,"quantity":1}]}`,
-			setup: func(s *store.Store) {
+			setup: func(s *repository.Store) {
 				s.CreateUserCart(&models.Cart{ID: "cart_existing", UserID: 1, Items: []models.LineItem{}})
 			},
 			wantStatus: http.StatusConflict,
@@ -219,7 +219,7 @@ func TestCreateUserCartAndAddItems(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := store.NewStore()
+			s := repository.NewStore()
 			if tt.setup != nil {
 				tt.setup(s)
 			}
@@ -247,7 +247,7 @@ func TestGetUserCart(t *testing.T) {
 		method     string
 		userID     string
 		setUserID  bool
-		setup      func(s *store.Store)
+		setup      func(s *repository.Store)
 		wantStatus int
 		wantBody   string
 	}{
@@ -256,7 +256,7 @@ func TestGetUserCart(t *testing.T) {
 			method:    http.MethodGet,
 			userID:    "1",
 			setUserID: true,
-			setup: func(s *store.Store) {
+			setup: func(s *repository.Store) {
 				s.CreateUserCart(&models.Cart{
 					ID:     "cart_1",
 					UserID: 1,
@@ -300,7 +300,7 @@ func TestGetUserCart(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := store.NewStore()
+			s := repository.NewStore()
 			if tt.setup != nil {
 				tt.setup(s)
 			}

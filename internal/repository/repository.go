@@ -1,7 +1,7 @@
-package store
+package repository
 
 import (
-	"checkout-api/models"
+	"checkout-api/internal/models"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,26 +10,25 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// PostgresStore is an in-memory store for items and orders.
-type PostgresStore struct {
-	conn *pgx.Conn
+type Repository struct {
+	db *pgxpool.Pool
 }
 
-// NewPostgresStore creates a Store pre-loaded with seed data.
-func NewPostgresStore(conn *pgx.Conn) *PostgresStore {
-	s := &PostgresStore{
-		conn: conn,
+func New(db *pgxpool.Pool) *Repository {
+	r := &Repository{
+		db: db,
 	}
-	return s
+	return r
 }
 
 // Items
 
-func (s *PostgresStore) GetItems(ctx context.Context) ([]*models.Item, error) {
-	rows, err := s.conn.Query(ctx, "select id, name, description, price, stock, created_at from items")
+func (r *Repository) GetItems(ctx context.Context) ([]*models.Item, error) {
+	rows, err := r.db.Query(ctx, "select id, name, description, price, stock, created_at from items")
 	if err != nil {
 		return nil, fmt.Errorf("failed to run query on GetItems: %w", err)
 	}
@@ -48,12 +47,12 @@ func (s *PostgresStore) GetItems(ctx context.Context) ([]*models.Item, error) {
 	if rows.Err() != nil {
 		return nil, err
 	}
-
+	// RETURN PROPER ERROR MESSAGE
 	return items, nil
 }
 
-func (s *PostgresStore) GetItem(ctx context.Context, id int) (*models.Item, error) {
-	row := s.conn.QueryRow(ctx, "select id, name, description, price, stock, created_at from items where id=$1", id)
+func (r *Repository) GetItem(ctx context.Context, id int) (*models.Item, error) {
+	row := r.db.QueryRow(ctx, "select id, name, description, price, stock, created_at from items where id=$1", id)
 
 	var item models.Item
 	err := row.Scan(&item.ID, &item.Name, &item.Description, &item.Price, &item.Stock, &item.CreatedAt)
@@ -69,8 +68,8 @@ func (s *PostgresStore) GetItem(ctx context.Context, id int) (*models.Item, erro
 
 // Cart
 
-func (s *PostgresStore) CreateUserCartAndAddItems(ctx context.Context, cart *models.Cart) error {
-	tx, err := s.conn.Begin(ctx)
+func (r *Repository) CreateUserCartAndAddItems(ctx context.Context, cart *models.Cart) error {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to begin transaction: %w", err)
 	}
@@ -113,9 +112,9 @@ func (s *PostgresStore) CreateUserCartAndAddItems(ctx context.Context, cart *mod
 	return nil
 }
 
-func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Cart, error) {
+func (r *Repository) GetUserCart(ctx context.Context, userID int) (*models.Cart, error) {
 	var cart models.Cart
-	err := s.conn.QueryRow(ctx,
+	err := r.db.QueryRow(ctx,
 		"select id, user_id, last_accessed from carts where user_id=$1", userID,
 	).Scan(&cart.ID, &cart.UserID, &cart.LastAccessed)
 	if err != nil {
@@ -125,7 +124,7 @@ func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Ca
 		return nil, fmt.Errorf("unable to fetch cart for user %d: %w", userID, err)
 	}
 
-	rows, err := s.conn.Query(ctx,
+	rows, err := r.db.Query(ctx,
 		`select ci.item_id, ci.quantity, i.name, i.price
          from cart_items ci
          join items i on i.id = ci.item_id
@@ -149,8 +148,8 @@ func (s *PostgresStore) GetUserCart(ctx context.Context, userID int) (*models.Ca
 	return &cart, nil
 }
 
-func (s *PostgresStore) DeleteUserCart(ctx context.Context, userID int) error {
-	_, err := s.conn.Exec(ctx, "delete from carts where user_id=$1", userID)
+func (r *Repository) DeleteUserCart(ctx context.Context, userID int) error {
+	_, err := r.db.Exec(ctx, "delete from carts where user_id=$1", userID)
 	if err != nil {
 		fmt.Printf("unable to delete user cart %d: %w", userID, err)
 	}
@@ -158,8 +157,8 @@ func (s *PostgresStore) DeleteUserCart(ctx context.Context, userID int) error {
 	return nil
 }
 
-func (s *PostgresStore) UpdateCartItem(ctx context.Context, userID, itemID, quantity int) (bool, error) {
-	tag, err := s.conn.Exec(ctx,
+func (r *Repository) UpdateCartItem(ctx context.Context, userID, itemID, quantity int) (bool, error) {
+	tag, err := r.db.Exec(ctx,
 		`update cart_items set quantity=$1
 		 where item_id=$2 and cart_id = (select id from carts where user_id=$3)`,
 		quantity, itemID, userID)
@@ -169,8 +168,8 @@ func (s *PostgresStore) UpdateCartItem(ctx context.Context, userID, itemID, quan
 	return tag.RowsAffected() > 0, nil
 }
 
-func (s *PostgresStore) RemoveCartItem(ctx context.Context, userID, itemID int) (bool, error) {
-	tag, err := s.conn.Exec(ctx,
+func (r *Repository) RemoveCartItem(ctx context.Context, userID, itemID int) (bool, error) {
+	tag, err := r.db.Exec(ctx,
 		`delete from cart_items
 		 where item_id=$1 and cart_id = (select id from carts where user_id=$2)`,
 		itemID, userID)
@@ -182,8 +181,8 @@ func (s *PostgresStore) RemoveCartItem(ctx context.Context, userID, itemID int) 
 
 // Order
 
-func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error) {
-	tx, err := s.conn.Begin(ctx)
+func (r *Repository) CreateOrder(ctx context.Context, userID int, items []models.LineItem, total int, status string) (*models.Order, error) {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction: %w", err)
 	}
@@ -215,8 +214,8 @@ func (s *PostgresStore) CreateOrder(ctx context.Context, userID int, items []mod
 	return order, nil
 }
 
-func (s *PostgresStore) GetOrdersByUserID(ctx context.Context, userID int) ([]*models.Order, error) {
-	rows, err := s.conn.Query(ctx,
+func (r *Repository) GetOrdersByUserID(ctx context.Context, userID int) ([]*models.Order, error) {
+	rows, err := r.db.Query(ctx,
 		"select id, user_id, total, status from orders where user_id=$1", userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run query on GetOrdersByUserID: %w", err)
@@ -236,7 +235,7 @@ func (s *PostgresStore) GetOrdersByUserID(ctx context.Context, userID int) ([]*m
 	}
 
 	for _, order := range orders {
-		itemRows, err := s.conn.Query(ctx,
+		itemRows, err := r.db.Query(ctx,
 			`select oi.item_id, oi.price, oi.quantity, i.name
              from order_items oi
              join items i on i.id = oi.item_id
@@ -265,12 +264,12 @@ func (s *PostgresStore) GetOrdersByUserID(ctx context.Context, userID int) ([]*m
 
 // Users
 
-func (s *PostgresStore) SignUp(ctx context.Context, username string, passwordHash string) (*models.User, error) {
+func (r *Repository) SignUp(ctx context.Context, username string, passwordHash string) (*models.User, error) {
 	var user models.User
 	user.Username = username
 	user.PasswordHash = passwordHash
 
-	err := s.conn.QueryRow(ctx, `insert into users (username, password_hash) values ($1, $2) returning id, created_at`, username, passwordHash).Scan(&user.ID, &user.CreatedAt)
+	err := r.db.QueryRow(ctx, `insert into users (username, password_hash) values ($1, $2) returning id, created_at`, username, passwordHash).Scan(&user.ID, &user.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create/find cart for user %d: %w")
 	}
@@ -284,9 +283,9 @@ func (s *PostgresStore) SignUp(ctx context.Context, username string, passwordHas
 	return &user, nil
 }
 
-func (s *PostgresStore) Login(ctx context.Context, username, password string) (*models.User, error) {
+func (r *Repository) Login(ctx context.Context, username, password string) (*models.User, error) {
 	var user models.User
-	err := s.conn.QueryRow(ctx,
+	err := r.db.QueryRow(ctx,
 		"select id, username, password_hash, created_at from users where username=$1", username,
 	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.CreatedAt)
 	if err != nil {
@@ -303,8 +302,8 @@ func (s *PostgresStore) Login(ctx context.Context, username, password string) (*
 	return &user, nil
 }
 
-func (s *PostgresStore) SaveRefreshToken(ctx context.Context, token string, userID int, expiresAt time.Time) error {
-	_, err := s.conn.Exec(ctx,
+func (r *Repository) SaveRefreshToken(ctx context.Context, token string, userID int, expiresAt time.Time) error {
+	_, err := r.db.Exec(ctx,
 		`insert into refresh_tokens (token, user_id, expires_at) values ($1, $2, $3)`,
 		token, userID, expiresAt)
 	if err != nil {
@@ -313,9 +312,9 @@ func (s *PostgresStore) SaveRefreshToken(ctx context.Context, token string, user
 	return nil
 }
 
-func (s *PostgresStore) GetRefreshToken(ctx context.Context, token string) (*models.RefreshToken, error) {
+func (r *Repository) GetRefreshToken(ctx context.Context, token string) (*models.RefreshToken, error) {
 	rt := &models.RefreshToken{Token: token}
-	err := s.conn.QueryRow(ctx,
+	err := r.db.QueryRow(ctx,
 		`select user_id, expires_at, revoked, created_at from refresh_tokens where token=$1`, token,
 	).Scan(&rt.UserID, &rt.ExpiresAt, &rt.Revoked, &rt.CreatedAt)
 	if err != nil {
@@ -327,8 +326,8 @@ func (s *PostgresStore) GetRefreshToken(ctx context.Context, token string) (*mod
 	return rt, nil
 }
 
-func (s *PostgresStore) RevokeRefreshToken(ctx context.Context, token string) error {
-	_, err := s.conn.Exec(ctx, `update refresh_tokens set revoked=true where token=$1`, token)
+func (r *Repository) RevokeRefreshToken(ctx context.Context, token string) error {
+	_, err := r.db.Exec(ctx, `update refresh_tokens set revoked=true where token=$1`, token)
 	if err != nil {
 		return fmt.Errorf("unable to revoke refresh token: %w", err)
 	}
@@ -337,10 +336,10 @@ func (s *PostgresStore) RevokeRefreshToken(ctx context.Context, token string) er
 
 // Idempotency
 
-func (s *PostgresStore) GetIdempotencyRecord(ctx context.Context, key string) (*models.IdempotencyRecord, error) {
+func (r *Repository) GetIdempotencyRecord(ctx context.Context, key string) (*models.IdempotencyRecord, error) {
 	var record models.IdempotencyRecord
 	var bodyJSON []byte
-	err := s.conn.QueryRow(ctx,
+	err := r.db.QueryRow(ctx,
 		`select request_hash, status_code, body, created_at from idempotency_records
 		 where key=$1 and created_at > now() - interval '30 minutes'`, key,
 	).Scan(&record.RequestHash, &record.StatusCode, &bodyJSON, &record.CreatedAt)
@@ -356,12 +355,12 @@ func (s *PostgresStore) GetIdempotencyRecord(ctx context.Context, key string) (*
 	return &record, nil
 }
 
-func (s *PostgresStore) SaveIdempotencyRecord(ctx context.Context, key, requestHash string, statusCode int, body any) error {
+func (r *Repository) SaveIdempotencyRecord(ctx context.Context, key, requestHash string, statusCode int, body any) error {
 	bodyJSON, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("unable to marshal idempotency body: %w", err)
 	}
-	_, err = s.conn.Exec(ctx,
+	_, err = r.db.Exec(ctx,
 		`insert into idempotency_records (key, request_hash, status_code, body) values ($1, $2, $3, $4)
 		 on conflict (key) do update set request_hash=excluded.request_hash,
 		   status_code=excluded.status_code, body=excluded.body, created_at=now()`,

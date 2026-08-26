@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"checkout-api/auth"
-	"checkout-api/models"
+	"checkout-api/internal/auth"
+	"checkout-api/internal/models"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
