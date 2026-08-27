@@ -1,4 +1,4 @@
-package repos
+package repository
 
 import (
 	"checkout-api/internal/models"
@@ -12,18 +12,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type UsersRepo struct {
+type UserRepo struct {
 	db *pgxpool.Pool
 }
 
-func NewUsersRepo(db *pgxpool.Pool) *UsersRepo {
-	r := &UsersRepo{
+func NewUserRepo(db *pgxpool.Pool) *UserRepo {
+	r := &UserRepo{
 		db: db,
 	}
 	return r
 }
 
-func (r *UsersRepo) SignUp(ctx context.Context, username string, passwordHash string) (*models.User, error) {
+func (r *UserRepo) SignUp(ctx context.Context, username string, passwordHash string) (*models.User, error) {
 	var user models.User
 	user.Username = username
 	user.PasswordHash = passwordHash
@@ -42,7 +42,7 @@ func (r *UsersRepo) SignUp(ctx context.Context, username string, passwordHash st
 	return &user, nil
 }
 
-func (r *UsersRepo) Login(ctx context.Context, username, password string) (*models.User, error) {
+func (r *UserRepo) Login(ctx context.Context, username, password string) (*models.User, error) {
 	var user models.User
 	err := r.db.QueryRow(ctx,
 		"select id, username, password_hash, created_at from users where username=$1", username,

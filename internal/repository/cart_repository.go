@@ -1,4 +1,4 @@
-package repos
+package repository
 
 import (
 	"checkout-api/internal/models"

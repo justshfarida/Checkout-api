@@ -1,4 +1,4 @@
-package repos
+package repository
 
 // ONLY IMPORTS ENTITES/CORE/MODELS
 import (

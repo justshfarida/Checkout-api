@@ -4,14 +4,15 @@ import (
 	"checkout-api/internal/auth"
 	"checkout-api/internal/controllers/handlers"
 	middleware2 "checkout-api/internal/controllers/middleware"
-	"checkout-api/repository"
+	"checkout-api/internal/repository"
+	"checkout-api/internal/service"
 	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
@@ -27,50 +28,83 @@ func main() {
 	}
 
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, dbURL)
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
-		panic(err)
+		log.Fatalf("unable to create connection pool: %v", err)
 	}
-	err = conn.Ping(ctx)
-	if err != nil {
-		panic(err)
-	}
+	defer pool.Close()
 
+	if err := pool.Ping(ctx); err != nil {
+		log.Fatalf("unable to ping db: %v", err)
+	}
 	fmt.Println("successfully connected to db")
 
-	postgresStore := repository.NewPostgresStore(conn)
 	authManager := auth.NewManager(jwtSecret)
-	handler := handlers.NewHandler(postgresStore, authManager)
+
+	// Items
+
+	itemsRepo := repository.NewItemsRepo(pool)
+	itemsService := service.NewItemsService(itemsRepo)
+	itemsHandler := handlers.NewItemsHandler(itemsService)
+
+	// Cart
+
+	cartRepo := repository.NewCartRepo(pool)
+	cartService := service.NewCartService(cartRepo)
+	cartHandler := handlers.NewCartHandler(cartService)
+
+	// Orders
+
+	ordersRepo := repository.NewOrdersRepo(pool)
+	ordersService := service.NewOrdersService(ordersRepo)
+	ordersHandler := handlers.NewOrdersHandler(ordersService)
+
+	// Users
+
+	userRepo := repository.NewUserRepo(pool)
+	userService := service.NewUserService(userRepo)
+	userHandler := handlers.NewUserHandler(userService)
+
+	// Refresh Token
+
+	refreshTokenRepo := repository.NewRefreshTokenRepo(pool)
+	refreshTokenService := service.NewRefreshTokenService(refreshTokenRepo)
+	refreshTokenHandler := handlers.NewRefreshTokenHandler(refreshTokenService)
+
 	requireAuth := middleware2.JWTAuth(authManager)
+
+	// Routes ----------
 
 	// Cart
 	http.Handle("/user/cart", requireAuth(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case http.MethodGet:
-				handler.GetUserCart(w, r)
+				cartHandler.GetUserCart(w, r)
 			case http.MethodPost:
-				handler.CreateUserCartAndAddItems(w, r)
+				cartHandler.CreateUserCartAndAddItems(w, r)
 			default:
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
 		})))
 
-	http.Handle("PATCH /user/cart/items/{id}", requireAuth(http.HandlerFunc(handler.UpdateItemQuantity)))
-	http.Handle("DELETE /user/cart/items/{id}", requireAuth(http.HandlerFunc(handler.DeleteItem)))
+	http.Handle("PATCH /user/cart/items/{id}", requireAuth(http.HandlerFunc(cartHandler.UpdateItemQuantity)))
+	http.Handle("DELETE /user/cart/items/{id}", requireAuth(http.HandlerFunc(cartHandler.DeleteItem)))
 
 	// Items
-	http.HandleFunc("GET /items", handler.GetItems)
-	http.HandleFunc("GET /items/", handler.GetItem)
+	http.HandleFunc("GET /items", itemsHandler.GetItems)
+	http.HandleFunc("GET /items/{id}", itemsHandler.GetItem)
 
 	// Orders
-	http.Handle("POST /orders", requireAuth(http.HandlerFunc(handler.CreateOrder)))
-	http.HandleFunc("GET /users/{user_id}/orders", handler.GetOrdersByUserID)
+	http.Handle("POST /orders", requireAuth(http.HandlerFunc(ordersHandler.CreateOrder)))
+	http.HandleFunc("GET /users/{user_id}/orders", ordersHandler.GetOrdersByUserID)
 
 	// Users
-	http.HandleFunc("POST /signup", handler.SignUp)
-	http.HandleFunc("POST /login", handler.Login)
-	// http.HandleFunc("GET /token", handler.RefreshToken)
+	http.HandleFunc("POST /signup", userHandler.SignUp)
+	http.HandleFunc("POST /login", userHandler.Login)
+
+	// Refresh token
+	http.HandleFunc("POST /token", refreshTokenHandler.Refresh)
 
 	allowedOrigin := os.Getenv("LOCAL_SERVER")
 	if allowedOrigin == "" {
