@@ -1,15 +1,16 @@
 package main
 
 import (
-	"checkout-api/handlers"
-	"checkout-api/middlewares"
-	"checkout-api/store"
-
 	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+
+	"checkout-api/internal/handlers"
+	"checkout-api/internal/middlewares"
+	"checkout-api/internal/repositories/postgres"
+	"checkout-api/internal/services"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -30,7 +31,10 @@ func main() {
 
 	ctx := context.Background()
 
-	// Create PostgreSQL connection pool
+	// --------------------
+	// DATABASE
+	// --------------------
+
 	pool, err := pgxpool.New(
 		ctx,
 		databaseURL,
@@ -44,7 +48,6 @@ func main() {
 
 	defer pool.Close()
 
-	// Check that database is reachable
 	if err := pool.Ping(ctx); err != nil {
 		log.Fatalf(
 			"failed to ping database: %v",
@@ -52,104 +55,57 @@ func main() {
 		)
 	}
 
-	postgresStore :=
-		store.NewPostgresStore(pool)
-
-	h := handlers.NewHandler(
-		postgresStore,
-		jwtSecretBytes,
-	)
-
 	// --------------------
-	// CART
+	// REPOSITORY
 	// --------------------
 
-	http.Handle(
-		"GET /user/cart",
-		middlewares.AuthMiddleware(
-			http.HandlerFunc(
-				h.GetUserCart,
-			),
+	repo :=
+		postgres.NewPostgresRepository(
+			pool,
+		)
+
+	// --------------------
+	// SERVICES
+	// --------------------
+
+	authService :=
+		services.NewAuthService(
+			repo,
+		)
+
+	itemService :=
+		services.NewItemService(
+			repo,
+		)
+
+	cartService :=
+		services.NewCartService(
+			repo,
+		)
+
+	orderService :=
+		services.NewOrderService(
+			repo,
+		)
+
+	// --------------------
+	// HANDLER
+	// --------------------
+
+	h :=
+		handlers.NewHandler(
+			authService,
+			itemService,
+			cartService,
+			orderService,
 			jwtSecretBytes,
-		),
-	)
-
-	http.Handle(
-		"PATCH /user/cart/items/{item_id}",
-		middlewares.AuthMiddleware(
-			http.HandlerFunc(
-				h.UpsertCartItem,
-			),
-			jwtSecretBytes,
-		),
-	)
-
-	http.Handle(
-		"DELETE /user/cart/items/{item_id}",
-		middlewares.AuthMiddleware(
-			http.HandlerFunc(
-				h.RemoveCartItem,
-			),
-			jwtSecretBytes,
-		),
-	)
+		)
 
 	// --------------------
-	// ORDERS
+	// ROUTES
 	// --------------------
 
-	http.Handle(
-		"POST /orders",
-		middlewares.AuthMiddleware(
-			http.HandlerFunc(
-				h.CreateOrder,
-			),
-			jwtSecretBytes,
-		),
-	)
-
-	http.Handle(
-		"GET /user/orders",
-		middlewares.AuthMiddleware(
-			http.HandlerFunc(
-				h.GetUserOrders,
-			),
-			jwtSecretBytes,
-		),
-	)
-
-	// --------------------
-	// ITEMS
-	// --------------------
-
-	http.HandleFunc(
-		"GET /items",
-		h.GetItems,
-	)
-
-	http.HandleFunc(
-		"GET /items/{item_id}",
-		h.GetItemByID,
-	)
-
-	// --------------------
-	// AUTH
-	// --------------------
-
-	http.HandleFunc(
-		"POST /signup",
-		h.CreateUser,
-	)
-
-	http.HandleFunc(
-		"POST /login",
-		h.LoginUser,
-	)
-
-	http.HandleFunc(
-		"GET /token",
-		h.IssueJWT,
-	)
+	mux := h.Routes()
 
 	// --------------------
 	// SERVER
@@ -163,7 +119,7 @@ func main() {
 		http.ListenAndServe(
 			":8080",
 			middlewares.CORS(
-				http.DefaultServeMux,
+				mux,
 				frontendURL,
 			),
 		),
