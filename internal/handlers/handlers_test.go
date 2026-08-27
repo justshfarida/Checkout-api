@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"checkout-api/store"
+	"checkout-api/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
 )

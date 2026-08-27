@@ -1,7 +1,7 @@
 package store
 
 import (
-	"checkout-api/models"
+	"checkout-api/internal/models"
 
 	"context"
 	"errors"

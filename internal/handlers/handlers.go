@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"checkout-api/middlewares"
-	"checkout-api/models"
+	"checkout-api/internal/middlewares"
+	"checkout-api/internal/models"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -75,6 +75,7 @@ type IdempotencyRecord struct {
 
 // mockProcessPayment simulates a payment provider call.
 func mockProcessPayment(amount int) PaymentResult {
+	amount /= 100
 	if amount > 0 && amount < 40 {
 		return PaymentResult{
 			Success:       true,
@@ -688,7 +689,7 @@ func (h *Handler) IssueJWT(
 
 	accessExpiresAt :=
 		time.Now().Add(
-			15 * time.Minute,
+			5 * time.Minute,
 		)
 
 	token := jwt.NewWithClaims(
