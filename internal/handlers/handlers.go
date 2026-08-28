@@ -7,6 +7,7 @@ import (
 
 	"checkout-api/internal/middlewares"
 	"checkout-api/internal/services"
+	"strconv"
 )
 
 type Handler struct {
@@ -114,6 +115,11 @@ func (h *Handler) Routes() *http.ServeMux {
 	)
 
 	mux.HandleFunc(
+		"GET /items/cursor",
+		h.GetItemsCursor,
+	)
+
+	mux.HandleFunc(
 		"GET /items/{item_id}",
 		h.GetItemByID,
 	)
@@ -150,4 +156,26 @@ func writeJSON(
 	if data != nil {
 		_ = json.NewEncoder(w).Encode(data)
 	}
+}
+func intQuery(
+	r *http.Request,
+	name string,
+	def int,
+) int {
+	value :=
+		r.URL.Query().
+			Get(name)
+
+	if value == "" {
+		return def
+	}
+
+	n, err :=
+		strconv.Atoi(value)
+
+	if err != nil {
+		return def
+	}
+
+	return n
 }

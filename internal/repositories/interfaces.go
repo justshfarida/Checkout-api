@@ -8,8 +8,19 @@ import (
 )
 
 type ItemRepository interface {
-	GetItems(ctx context.Context) ([]*models.Item, error)
+	// GetItems(ctx context.Context) ([]*models.Item, error)
 	GetItem(ctx context.Context, id int) (*models.Item, error)
+	GetItemsOffset(
+		ctx context.Context,
+		limit int,
+		offset int,
+	) ([]*models.Item, error)
+
+	GetItemsCursor(
+		ctx context.Context,
+		lastID int,
+		limit int,
+	) ([]*models.Item, error)
 }
 
 type CartRepository interface {
@@ -20,9 +31,22 @@ type CartRepository interface {
 		quantity int,
 	) error
 
-	GetUserCart(
+	// GetUserCart(
+	// 	ctx context.Context,
+	// 	userID int,
+	// ) ([]models.CartItem, error)
+	GetUserCartOffset(
 		ctx context.Context,
 		userID int,
+		limit int,
+		offset int,
+	) ([]models.CartItem, error)
+
+	GetUserCartCursor(
+		ctx context.Context,
+		userID int,
+		lastID int,
+		limit int,
 	) ([]models.CartItem, error)
 
 	DeleteUserCart(
@@ -52,9 +76,22 @@ type OrderRepository interface {
 		status string,
 	) error
 
-	GetOrdersByUserID(
+	// GetOrdersByUserID(
+	// 	ctx context.Context,
+	// 	userID int,
+	// ) ([]models.UserOrder, error)
+	GetOrdersByUserIDOffset(
 		ctx context.Context,
 		userID int,
+		limit int,
+		offset int,
+	) ([]models.UserOrder, error)
+
+	GetOrdersByUserIDCursor(
+		ctx context.Context,
+		userID int,
+		lastID int,
+		limit int,
 	) ([]models.UserOrder, error)
 }
 

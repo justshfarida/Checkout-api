@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"checkout-api/internal/services"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,9 +12,25 @@ func (h *Handler) GetItems(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	items, err :=
-		h.itemService.GetItems(
+	limit :=
+		intQuery(
+			r,
+			"limit",
+			services.DefaultLimit,
+		)
+
+	offset :=
+		intQuery(
+			r,
+			"offset",
+			0,
+		)
+
+	result, err :=
+		h.itemService.GetItemsOffset(
 			r.Context(),
+			limit,
+			offset,
 		)
 
 	if err != nil {
@@ -27,7 +45,7 @@ func (h *Handler) GetItems(
 	writeJSON(
 		w,
 		http.StatusOK,
-		items,
+		result,
 	)
 }
 
@@ -91,8 +109,57 @@ func (h *Handler) GetItemByID(
 	}
 
 	writeJSON(
+
 		w,
 		http.StatusOK,
 		item,
+	)
+}
+func (h *Handler) GetItemsCursor(w http.ResponseWriter, r *http.Request) {
+	rawCursor :=
+		r.URL.Query().
+			Get("cursor")
+
+	limit :=
+		intQuery(
+			r,
+			"limit",
+			services.DefaultLimit,
+		)
+
+	result, err :=
+		h.itemService.GetItemsCursor(
+			r.Context(),
+			rawCursor,
+			limit,
+		)
+
+	if err != nil {
+		if errors.Is(
+			err,
+			services.ErrInvalidCursor,
+		) {
+			writeJSON(
+				w,
+				http.StatusBadRequest,
+				ErrorMessageResponse{
+					Message: "invalid cursor",
+				},
+			)
+			return
+		}
+
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		result,
 	)
 }
