@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"checkout-api/internal/validation"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -22,11 +24,30 @@ func (h *Handler) LoginUser(
 ) {
 	var req AuthRequest
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(&req); err != nil {
 		http.Error(
 			w,
 			"invalid body",
 			http.StatusBadRequest,
+		)
+		return
+	}
+
+	req.Email =
+		validation.SanitizeEmail(
+			req.Email,
+		)
+
+	if err := h.validate.Struct(req); err != nil {
+		writeJSON(
+			w,
+			http.StatusUnprocessableEntity,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
 		)
 		return
 	}
@@ -190,8 +211,10 @@ func (h *Handler) CreateUser(
 	r *http.Request,
 ) {
 	var req AuthRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := dec.Decode(&req); err != nil {
 		http.Error(
 			w,
 			"invalid body",
@@ -200,17 +223,19 @@ func (h *Handler) CreateUser(
 		return
 	}
 
-	// We will later move validation into
-	// sanitize / shape / business layers.
+	// 1. SANITIZE
+	req.Email =
+		validation.SanitizeEmail(
+			req.Email,
+		)
 
-	pwLen := len(req.Password)
-
-	if pwLen < 12 || pwLen > 25 {
+	// 2. SHAPE VALIDATION
+	if err := h.validate.Struct(req); err != nil {
 		writeJSON(
 			w,
 			http.StatusUnprocessableEntity,
 			ErrorMessageResponse{
-				Message: "password is too short or too long",
+				Message: err.Error(),
 			},
 		)
 		return

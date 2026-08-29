@@ -8,6 +8,8 @@ import (
 	"checkout-api/internal/middlewares"
 	"checkout-api/internal/services"
 	"strconv"
+
+	"github.com/go-playground/validator/v10"
 )
 
 type Handler struct {
@@ -16,8 +18,8 @@ type Handler struct {
 	cartService  *services.CartService
 	orderService *services.OrderService
 
-	jwtSecret []byte
-
+	jwtSecret        []byte
+	validate         *validator.Validate
 	idempotencyCache map[string]*IdempotencyRecord
 }
 
@@ -35,11 +37,13 @@ func NewHandler(
 	jwtSecret []byte,
 ) *Handler {
 	return &Handler{
-		authService:      authService,
-		itemService:      itemService,
-		cartService:      cartService,
-		orderService:     orderService,
-		jwtSecret:        jwtSecret,
+		authService:  authService,
+		itemService:  itemService,
+		cartService:  cartService,
+		orderService: orderService,
+		jwtSecret:    jwtSecret,
+		validate:     validator.New(),
+
 		idempotencyCache: make(map[string]*IdempotencyRecord),
 	}
 }
