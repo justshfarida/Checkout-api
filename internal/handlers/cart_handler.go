@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"checkout-api/internal/middlewares"
+	"checkout-api/internal/services"
 )
 
 func (h *Handler) UpsertCartItem(
@@ -162,15 +164,13 @@ func (h *Handler) RemoveCartItem(
 		http.StatusNoContent,
 	)
 }
-
 func (h *Handler) GetUserCart(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	userID, ok :=
-		middlewares.UserIDFromContext(
-			r.Context(),
-		)
+	userID, ok := middlewares.UserIDFromContext(
+		r.Context(),
+	)
 
 	if !ok {
 		http.Error(
@@ -181,11 +181,24 @@ func (h *Handler) GetUserCart(
 		return
 	}
 
-	cart, err :=
-		h.cartService.GetUserCart(
-			r.Context(),
-			userID,
-		)
+	limit := intQuery(
+		r,
+		"limit",
+		services.DefaultLimit,
+	)
+
+	offset := intQuery(
+		r,
+		"offset",
+		0,
+	)
+
+	result, err := h.cartService.GetUserCartOffset(
+		r.Context(),
+		userID,
+		limit,
+		offset,
+	)
 
 	if err != nil {
 		http.Error(
@@ -196,14 +209,13 @@ func (h *Handler) GetUserCart(
 		return
 	}
 
-	items :=
-		make(
-			[]CartItemResponse,
-			0,
-			len(cart),
-		)
+	items := make(
+		[]CartItemResponse,
+		0,
+		len(result.Items),
+	)
 
-	for _, item := range cart {
+	for _, item := range result.Items {
 		items = append(
 			items,
 			CartItemResponse{
@@ -221,9 +233,101 @@ func (h *Handler) GetUserCart(
 	writeJSON(
 		w,
 		http.StatusOK,
-		CartResponse{
+		CartOffsetResponse{
 			UserID: userID,
 			Items:  items,
+			Limit:  result.Limit,
+			Offset: result.Offset,
+		},
+	)
+}
+
+func (h *Handler) GetUserCartCursor(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok := middlewares.UserIDFromContext(
+		r.Context(),
+	)
+
+	if !ok {
+		http.Error(
+			w,
+			"Unauthorized",
+			http.StatusUnauthorized,
+		)
+		return
+	}
+
+	cursor := r.URL.Query().Get(
+		"cursor",
+	)
+
+	limit := intQuery(
+		r,
+		"limit",
+		services.DefaultLimit,
+	)
+
+	result, err := h.cartService.GetUserCartCursor(
+		r.Context(),
+		userID,
+		cursor,
+		limit,
+	)
+
+	if err != nil {
+		if errors.Is(
+			err,
+			services.ErrInvalidCursor,
+		) {
+			writeJSON(
+				w,
+				http.StatusBadRequest,
+				ErrorMessageResponse{
+					Message: "invalid cursor",
+				},
+			)
+			return
+		}
+
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	items := make(
+		[]CartItemResponse,
+		0,
+		len(result.Items),
+	)
+
+	for _, item := range result.Items {
+		items = append(
+			items,
+			CartItemResponse{
+				ID:          item.ID,
+				Name:        item.Name,
+				Description: item.Description,
+				Price:       item.Price,
+				Stock:       item.Stock,
+				CreatedAt:   item.CreatedAt,
+				Quantity:    item.Quantity,
+			},
+		)
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		CartCursorResponse{
+			UserID:     userID,
+			Items:      items,
+			NextCursor: result.NextCursor,
+			HasMore:    result.HasMore,
 		},
 	)
 }

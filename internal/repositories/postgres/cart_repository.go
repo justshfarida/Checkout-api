@@ -7,6 +7,138 @@ import (
 	"checkout-api/internal/models"
 )
 
+func (r *PostgresRepository) GetUserCartOffset(
+	ctx context.Context,
+	userID int,
+	limit int,
+	offset int,
+) ([]models.CartItem, error) {
+	rows, err :=
+		r.pool.Query(
+			ctx,
+			`
+			SELECT
+				i.id,
+				i.name,
+				i.description,
+				i.price,
+				i.stock,
+				i.created_at,
+				c.quantity
+			FROM carts c
+			INNER JOIN items i
+				ON i.id = c.item_id
+			WHERE c.user_id = $1
+			ORDER BY i.id
+			LIMIT $2
+			OFFSET $3
+			`,
+			userID,
+			limit,
+			offset,
+		)
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to get user cart: %w",
+			err,
+		)
+	}
+
+	defer rows.Close()
+
+	items :=
+		make([]models.CartItem, 0)
+
+	for rows.Next() {
+		var item models.CartItem
+
+		if err := rows.Scan(
+			&item.ID,
+			&item.Name,
+			&item.Description,
+			&item.Price,
+			&item.Stock,
+			&item.CreatedAt,
+			&item.Quantity,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(
+			items,
+			item,
+		)
+	}
+
+	return items, rows.Err()
+}
+func (r *PostgresRepository) GetUserCartCursor(
+	ctx context.Context,
+	userID int,
+	lastID int,
+	limit int,
+) ([]models.CartItem, error) {
+	rows, err :=
+		r.pool.Query(
+			ctx,
+			`
+			SELECT
+				i.id,
+				i.name,
+				i.description,
+				i.price,
+				i.stock,
+				i.created_at,
+				c.quantity
+			FROM carts c
+			INNER JOIN items i
+				ON i.id = c.item_id
+			WHERE c.user_id = $1
+			  AND i.id > $2
+			ORDER BY i.id
+			LIMIT $3
+			`,
+			userID,
+			lastID,
+			limit,
+		)
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to get user cart: %w",
+			err,
+		)
+	}
+
+	defer rows.Close()
+
+	items :=
+		make([]models.CartItem, 0)
+
+	for rows.Next() {
+		var item models.CartItem
+
+		if err := rows.Scan(
+			&item.ID,
+			&item.Name,
+			&item.Description,
+			&item.Price,
+			&item.Stock,
+			&item.CreatedAt,
+			&item.Quantity,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(
+			items,
+			item,
+		)
+	}
+
+	return items, rows.Err()
+}
 func (r *PostgresRepository) UpsertCartItem(
 	ctx context.Context,
 	userID int,
@@ -39,73 +171,6 @@ func (r *PostgresRepository) UpsertCartItem(
 	}
 
 	return nil
-}
-
-func (r *PostgresRepository) GetUserCart(
-	ctx context.Context,
-	userID int,
-) ([]models.CartItem, error) {
-	rows, err := r.pool.Query(
-		ctx,
-		`
-		SELECT
-			i.id,
-			i.name,
-			i.description,
-			i.price,
-			i.stock,
-			i.created_at,
-			c.quantity
-		FROM carts c
-		INNER JOIN items i
-			ON i.id = c.item_id
-		WHERE c.user_id = $1
-		ORDER BY i.id
-		`,
-		userID,
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to get cart for user %d: %w",
-			userID,
-			err,
-		)
-	}
-
-	defer rows.Close()
-
-	items := make([]models.CartItem, 0)
-
-	for rows.Next() {
-		var item models.CartItem
-
-		if err := rows.Scan(
-			&item.ID,
-			&item.Name,
-			&item.Description,
-			&item.Price,
-			&item.Stock,
-			&item.CreatedAt,
-			&item.Quantity,
-		); err != nil {
-			return nil, fmt.Errorf(
-				"failed to scan cart item: %w",
-				err,
-			)
-		}
-
-		items = append(items, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf(
-			"failed while reading cart: %w",
-			err,
-		)
-	}
-
-	return items, nil
 }
 
 func (r *PostgresRepository) DeleteUserCart(

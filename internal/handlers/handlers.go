@@ -62,6 +62,15 @@ func (h *Handler) Routes() *http.ServeMux {
 	)
 
 	mux.Handle(
+		"GET /user/cart/cursor",
+		middlewares.AuthMiddleware(
+			http.HandlerFunc(
+				h.GetUserCartCursor,
+			),
+			h.jwtSecret,
+		),
+	)
+	mux.Handle(
 		"PATCH /user/cart/items/{item_id}",
 		middlewares.AuthMiddleware(
 			http.HandlerFunc(
@@ -104,7 +113,15 @@ func (h *Handler) Routes() *http.ServeMux {
 			h.jwtSecret,
 		),
 	)
-
+	mux.Handle(
+		"GET /user/orders/cursor",
+		middlewares.AuthMiddleware(
+			http.HandlerFunc(
+				h.GetUserOrdersCursor,
+			),
+			h.jwtSecret,
+		),
+	)
 	// --------------------
 	// ITEMS
 	// --------------------

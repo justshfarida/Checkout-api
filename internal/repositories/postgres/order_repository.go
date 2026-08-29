@@ -193,13 +193,27 @@ func (r *PostgresRepository) UpdateOrderStatus(
 	return nil
 }
 
-func (r *PostgresRepository) GetOrdersByUserID(
+func (r *PostgresRepository) GetOrdersByUserIDOffset(
 	ctx context.Context,
 	userID int,
+	limit int,
+	offset int,
 ) ([]models.UserOrder, error) {
 	rows, err := r.pool.Query(
 		ctx,
 		`
+		WITH paginated_orders AS (
+			SELECT
+				id,
+				user_id,
+				total,
+				status
+			FROM orders
+			WHERE user_id = $1
+			ORDER BY id DESC
+			LIMIT $2
+			OFFSET $3
+		)
 		SELECT
 			o.id,
 			o.user_id,
@@ -209,29 +223,134 @@ func (r *PostgresRepository) GetOrdersByUserID(
 			i.name,
 			li.price,
 			li.quantity
-		FROM orders o
+		FROM paginated_orders o
 		LEFT JOIN line_items li
 			ON li.order_id = o.id
 		LEFT JOIN items i
 			ON i.id = li.item_id
-		WHERE o.user_id = $1
-		ORDER BY o.created_at DESC, li.id
+		ORDER BY o.id DESC, li.item_id
 		`,
 		userID,
+		limit,
+		offset,
 	)
 
 	if err != nil {
 		return nil, fmt.Errorf(
-			"failed to get orders for user %d: %w",
-			userID,
+			"failed to get orders: %w",
 			err,
 		)
 	}
 
 	defer rows.Close()
 
-	orders := make([]models.UserOrder, 0)
-	orderIndexes := make(map[int]int)
+	return scanOrders(rows)
+}
+
+func (r *PostgresRepository) GetOrdersByUserIDCursor(
+	ctx context.Context,
+	userID int,
+	lastID int,
+	limit int,
+) ([]models.UserOrder, error) {
+	var rows pgx.Rows
+	var err error
+
+	if lastID == 0 {
+		// First page: no cursor yet.
+		rows, err = r.pool.Query(
+			ctx,
+			`
+			WITH paginated_orders AS (
+				SELECT
+					id,
+					user_id,
+					total,
+					status
+				FROM orders
+				WHERE user_id = $1
+				ORDER BY id DESC
+				LIMIT $2
+			)
+			SELECT
+				o.id,
+				o.user_id,
+				o.total,
+				o.status,
+				li.item_id,
+				i.name,
+				li.price,
+				li.quantity
+			FROM paginated_orders o
+			LEFT JOIN line_items li
+				ON li.order_id = o.id
+			LEFT JOIN items i
+				ON i.id = li.item_id
+			ORDER BY o.id DESC, li.item_id
+			`,
+			userID,
+			limit,
+		)
+	} else {
+		rows, err = r.pool.Query(
+			ctx,
+			`
+			WITH paginated_orders AS (
+				SELECT
+					id,
+					user_id,
+					total,
+					status
+				FROM orders
+				WHERE user_id = $1
+				  AND id < $2
+				ORDER BY id DESC
+				LIMIT $3
+			)
+			SELECT
+				o.id,
+				o.user_id,
+				o.total,
+				o.status,
+				li.item_id,
+				i.name,
+				li.price,
+				li.quantity
+			FROM paginated_orders o
+			LEFT JOIN line_items li
+				ON li.order_id = o.id
+			LEFT JOIN items i
+				ON i.id = li.item_id
+			ORDER BY o.id DESC, li.item_id
+			`,
+			userID,
+			lastID,
+			limit,
+		)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to get orders: %w",
+			err,
+		)
+	}
+
+	defer rows.Close()
+
+	return scanOrders(rows)
+}
+func scanOrders(
+	rows pgx.Rows,
+) ([]models.UserOrder, error) {
+	orders := make(
+		[]models.UserOrder,
+		0,
+	)
+
+	orderIndexes := make(
+		map[int]int,
+	)
 
 	for rows.Next() {
 		var (
@@ -246,7 +365,7 @@ func (r *PostgresRepository) GetOrdersByUserID(
 			quantity *int
 		)
 
-		if err := rows.Scan(
+		err := rows.Scan(
 			&orderID,
 			&orderUserID,
 			&total,
@@ -255,14 +374,17 @@ func (r *PostgresRepository) GetOrdersByUserID(
 			&itemName,
 			&price,
 			&quantity,
-		); err != nil {
+		)
+
+		if err != nil {
 			return nil, fmt.Errorf(
-				"failed to scan order row: %w",
+				"failed to scan order: %w",
 				err,
 			)
 		}
 
-		index, exists := orderIndexes[orderID]
+		index, exists :=
+			orderIndexes[orderID]
 
 		if !exists {
 			orders = append(
@@ -277,13 +399,15 @@ func (r *PostgresRepository) GetOrdersByUserID(
 			)
 
 			index = len(orders) - 1
+
 			orderIndexes[orderID] = index
 		}
 
 		if itemID != nil {
-			orderItem := models.OrderItem{
-				ItemID: *itemID,
-			}
+			orderItem :=
+				models.OrderItem{
+					ItemID: *itemID,
+				}
 
 			if itemName != nil {
 				orderItem.Name = *itemName

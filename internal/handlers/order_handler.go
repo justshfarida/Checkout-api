@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"checkout-api/internal/middlewares"
 	"checkout-api/internal/models"
+	"checkout-api/internal/services"
 )
 
 func mockProcessPayment(
@@ -247,11 +249,27 @@ func (h *Handler) GetUserOrders(
 		return
 	}
 
-	orders, err :=
+	limit :=
+		intQuery(
+			r,
+			"limit",
+			services.DefaultLimit,
+		)
+
+	offset :=
+		intQuery(
+			r,
+			"offset",
+			0,
+		)
+
+	result, err :=
 		h.orderService.
-			GetOrdersByUserID(
+			GetOrdersByUserIDOffset(
 				r.Context(),
 				userID,
+				limit,
+				offset,
 			)
 
 	if err != nil {
@@ -267,45 +285,144 @@ func (h *Handler) GetUserOrders(
 		make(
 			[]UserOrderResponse,
 			0,
-			len(orders),
+			len(result.Orders),
 		)
 
-	for _, order := range orders {
-
-		items :=
-			make(
-				[]OrderItemResponse,
-				0,
-				len(order.Items),
-			)
-
-		for _, item := range order.Items {
-
-			items = append(
-				items,
-				OrderItemResponse{
-					ItemID:   item.ItemID,
-					Name:     item.Name,
-					Quantity: item.Quantity,
-					Price:    item.Price,
-				},
-			)
-		}
+	for _, order := range result.Orders {
 
 		response = append(
 			response,
-			UserOrderResponse{
-				ID:     order.ID,
-				Items:  items,
-				Total:  order.Total,
-				Status: order.Status,
-			},
+			mapUserOrderResponse(
+				order,
+			),
 		)
 	}
 
 	writeJSON(
 		w,
 		http.StatusOK,
-		response,
+		OrderOffsetResponse{
+			Orders: response,
+			Limit:  result.Limit,
+			Offset: result.Offset,
+		},
 	)
+}
+func (h *Handler) GetUserOrdersCursor(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok :=
+		middlewares.UserIDFromContext(
+			r.Context(),
+		)
+
+	if !ok {
+		http.Error(
+			w,
+			"Unauthorized",
+			http.StatusUnauthorized,
+		)
+		return
+	}
+
+	cursor :=
+		r.URL.Query().
+			Get("cursor")
+
+	limit :=
+		intQuery(
+			r,
+			"limit",
+			services.DefaultLimit,
+		)
+
+	result, err :=
+		h.orderService.
+			GetOrdersByUserIDCursor(
+				r.Context(),
+				userID,
+				cursor,
+				limit,
+			)
+
+	if err != nil {
+		if errors.Is(
+			err,
+			services.ErrInvalidCursor,
+		) {
+			writeJSON(
+				w,
+				http.StatusBadRequest,
+				ErrorMessageResponse{
+					Message: "invalid cursor",
+				},
+			)
+			return
+		}
+
+		http.Error(
+			w,
+			"Internal Server Error",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	response :=
+		make(
+			[]UserOrderResponse,
+			0,
+			len(result.Orders),
+		)
+
+	for _, order := range result.Orders {
+
+		response = append(
+			response,
+			mapUserOrderResponse(
+				order,
+			),
+		)
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		OrderCursorResponse{
+			Orders:     response,
+			NextCursor: result.NextCursor,
+			HasMore:    result.HasMore,
+		},
+	)
+}
+func mapUserOrderResponse(
+	order models.UserOrder,
+) UserOrderResponse {
+	items :=
+		make(
+			[]OrderItemResponse,
+			0,
+			len(order.Items),
+		)
+
+	for _, item := range order.Items {
+
+		items = append(
+			items,
+			OrderItemResponse{
+				ItemID:   item.ItemID,
+				Name:     item.Name,
+				Quantity: item.Quantity,
+				Price:    item.Price,
+			},
+		)
+	}
+
+	return UserOrderResponse{
+		ID:     order.ID,
+		Items:  items,
+		Total:  order.Total,
+		Status: order.Status,
+	}
 }

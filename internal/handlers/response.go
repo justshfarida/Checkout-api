@@ -36,9 +36,18 @@ type OrderResponse struct {
 	Status string              `json:"status"` // pending, paid, failed
 }
 
-type CartResponse struct {
+type CartOffsetResponse struct {
 	UserID int                `json:"user_id"`
 	Items  []CartItemResponse `json:"items"`
+	Limit  int                `json:"limit"`
+	Offset int                `json:"offset"`
+}
+
+type CartCursorResponse struct {
+	UserID     int                `json:"user_id"`
+	Items      []CartItemResponse `json:"items"`
+	NextCursor string             `json:"next_cursor,omitempty"`
+	HasMore    bool               `json:"has_more"`
 }
 
 type CartItemResponse struct {
@@ -66,4 +75,15 @@ type UserOrderResponse struct {
 	Items  []OrderItemResponse `json:"items"`
 	Total  int                 `json:"total"`
 	Status string              `json:"status"`
+}
+type OrderOffsetResponse struct {
+	Orders []UserOrderResponse `json:"orders"`
+	Limit  int                 `json:"limit"`
+	Offset int                 `json:"offset"`
+}
+
+type OrderCursorResponse struct {
+	Orders     []UserOrderResponse `json:"orders"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+	HasMore    bool                `json:"has_more"`
 }
