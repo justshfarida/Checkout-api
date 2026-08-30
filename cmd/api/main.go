@@ -12,9 +12,17 @@ import (
 	"checkout-api/internal/repositories/postgres"
 	"checkout-api/internal/services"
 
+	_ "checkout-api/docs"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
+
+// @title Checkout API
+// @version 1.0
+// @description API for items, cart, orders and authentication.
+// @host localhost:8080
+// @BasePath /
 
 func main() {
 	if err := godotenv.Load(); err != nil {

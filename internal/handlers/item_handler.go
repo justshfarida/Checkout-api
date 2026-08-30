@@ -7,6 +7,17 @@ import (
 	"checkout-api/internal/services"
 )
 
+// GetItems godoc
+// @Summary List items
+// @Description Returns items using offset-based pagination.
+// @Tags Items
+// @Produce json
+// @Param limit query int false "Maximum number of items to return" default(10)
+// @Param offset query int false "Number of items to skip" default(0)
+// @Success 200 {object} services.ItemOffsetResult
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /items [get]
 func (h *Handler) GetItems(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -67,6 +78,17 @@ func (h *Handler) GetItems(
 	)
 }
 
+// GetItemByID godoc
+// @Summary Get item by ID
+// @Description Returns a single item by its ID.
+// @Tags Items
+// @Produce json
+// @Param item_id path int true "Item ID"
+// @Success 200 {object} models.Item
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /items/{item_id} [get]
 func (h *Handler) GetItemByID(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -118,6 +140,17 @@ func (h *Handler) GetItemByID(
 	)
 }
 
+// GetItemsCursor godoc
+// @Summary List items using cursor pagination
+// @Description Returns items after the supplied cursor. Use next_cursor from the previous response to retrieve the next page.
+// @Tags Items
+// @Produce json
+// @Param limit query int false "Maximum number of items to return" default(10)
+// @Param cursor query string false "Cursor returned by the previous page"
+// @Success 200 {object} services.ItemCursorResult
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /items/cursor [get]
 func (h *Handler) GetItemsCursor(
 	w http.ResponseWriter,
 	r *http.Request,

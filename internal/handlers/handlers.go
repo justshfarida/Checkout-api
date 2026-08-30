@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/go-playground/validator/v10"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 type Handler struct {
@@ -52,11 +53,16 @@ func NewHandler(
 func (h *Handler) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
+	mux.Handle(
+		"GET /swagger/",
+		httpSwagger.WrapHandler,
+	)
 	// --------------------
 	// CART
 	// --------------------
 
 	mux.Handle(
+
 		"GET /user/cart",
 		middlewares.AuthMiddleware(
 			http.HandlerFunc(

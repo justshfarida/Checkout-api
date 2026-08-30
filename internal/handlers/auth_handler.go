@@ -18,6 +18,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// LoginUser godoc
+// @Summary Login user
+// @Description Authenticates a user and returns an access token. A refresh token is stored in an HttpOnly cookie.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param request body AuthRequest true "Login credentials"
+// @Success 200 {object} AuthResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 422 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /login [post]
 func (h *Handler) LoginUser(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -189,6 +202,18 @@ func (h *Handler) LoginUser(
 	)
 }
 
+// CreateUser godoc
+// @Summary Create user
+// @Description Registers a new user.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param request body AuthRequest true "User registration data"
+// @Success 201 "User created successfully"
+// @Failure 400 {object} ErrorResponse
+// @Failure 422 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /signup [post]
 func (h *Handler) CreateUser(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -263,6 +288,15 @@ func (h *Handler) CreateUser(
 	)
 }
 
+// IssueJWT godoc
+// @Summary Refresh access token
+// @Description Rotates the refresh token stored in the HttpOnly cookie and returns a new access token.
+// @Tags Auth
+// @Produce json
+// @Success 200 {object} AuthResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /token [post]
 func (h *Handler) IssueJWT(
 	w http.ResponseWriter,
 	r *http.Request,

@@ -9,6 +9,22 @@ import (
 	"checkout-api/internal/services"
 )
 
+// UpsertCartItem godoc
+// @Summary Add or update cart item
+// @Description Adds an item to the current user's cart or updates its quantity.
+// @Tags Cart
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param item_id path int true "Item ID"
+// @Param request body UpsertCartItemRequest true "Cart item quantity"
+// @Success 204 "Cart item updated successfully"
+// @Failure 400 {object} ErrorResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 422 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /user/cart/items/{item_id} [patch]
 func (h *Handler) UpsertCartItem(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -105,6 +121,18 @@ func (h *Handler) UpsertCartItem(
 	)
 }
 
+// RemoveCartItem godoc
+// @Summary Remove item from cart
+// @Description Removes an item from the current user's cart.
+// @Tags Cart
+// @Produce json
+// @Security BearerAuth
+// @Param item_id path int true "Item ID"
+// @Success 204 "Cart item removed successfully"
+// @Failure 400 {object} ErrorResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /user/cart/items/{item_id} [delete]
 func (h *Handler) RemoveCartItem(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -170,6 +198,19 @@ func (h *Handler) RemoveCartItem(
 	)
 }
 
+// GetUserCart godoc
+// @Summary Get current user's cart
+// @Description Returns cart items using offset-based pagination.
+// @Tags Cart
+// @Produce json
+// @Security BearerAuth
+// @Param limit query int false "Maximum number of cart items to return" default(10)
+// @Param offset query int false "Number of cart items to skip" default(0)
+// @Success 200 {object} CartOffsetResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /user/cart [get]
 func (h *Handler) GetUserCart(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -277,7 +318,19 @@ func (h *Handler) GetUserCart(
 func (h *Handler) GetUserCartCursor(
 	w http.ResponseWriter,
 	r *http.Request,
-) {
+) { // GetUserCartCursor godoc
+	// @Summary Get current user's cart using cursor pagination
+	// @Description Returns cart items after the supplied cursor. Use next_cursor from the previous response to retrieve the next page.
+	// @Tags Cart
+	// @Produce json
+	// @Security BearerAuth
+	// @Param limit query int false "Maximum number of cart items to return" default(10)
+	// @Param cursor query string false "Cursor returned by the previous page"
+	// @Success 200 {object} CartCursorResponse
+	// @Failure 400 {object} ErrorResponse
+	// @Failure 401 {object} ErrorResponse
+	// @Failure 500 {object} ErrorResponse
+	// @Router /user/cart/cursor [get]
 	userID, ok :=
 		middlewares.UserIDFromContext(
 			r.Context(),
