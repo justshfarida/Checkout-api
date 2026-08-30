@@ -87,3 +87,10 @@ type OrderCursorResponse struct {
 	NextCursor string              `json:"next_cursor,omitempty"`
 	HasMore    bool                `json:"has_more"`
 }
+
+//new unified error response
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message"`
+	Field   string `json:"field,omitempty"`
+}

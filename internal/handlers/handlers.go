@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -182,21 +183,28 @@ func intQuery(
 	r *http.Request,
 	name string,
 	def int,
-) int {
-	value :=
-		r.URL.Query().
-			Get(name)
+) (int, error) {
+	raw := r.URL.Query().Get(name)
 
-	if value == "" {
-		return def
+	if raw == "" {
+		return def, nil
 	}
 
-	n, err :=
-		strconv.Atoi(value)
+	n, err := strconv.Atoi(raw)
 
 	if err != nil {
-		return def
+		return 0, fmt.Errorf(
+			"%s must be an integer",
+			name,
+		)
 	}
 
-	return n
+	if n < 0 {
+		return 0, fmt.Errorf(
+			"%s cannot be negative",
+			name,
+		)
+	}
+
+	return n, nil
 }

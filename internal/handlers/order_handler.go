@@ -98,11 +98,10 @@ func (h *Handler) CreateOrder(
 
 	var req CreateOrderRequest
 
-	if err :=
-		json.NewDecoder(
-			r.Body,
-		).Decode(&req); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
 
+	if err := dec.Decode(&req); err != nil {
 		http.Error(
 			w,
 			"invalid request body",
@@ -111,11 +110,13 @@ func (h *Handler) CreateOrder(
 		return
 	}
 
-	if len(req.LineItems) == 0 {
-		http.Error(
+	if err := h.validate.Struct(req); err != nil {
+		writeJSON(
 			w,
-			"items must not be empty",
-			http.StatusBadRequest,
+			http.StatusUnprocessableEntity,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
 		)
 		return
 	}
@@ -249,19 +250,39 @@ func (h *Handler) GetUserOrders(
 		return
 	}
 
-	limit :=
+	limit, err :=
 		intQuery(
 			r,
 			"limit",
 			services.DefaultLimit,
 		)
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
+		)
+		return
+	}
 
-	offset :=
+	offset, err :=
 		intQuery(
 			r,
 			"offset",
 			0,
 		)
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
+		)
+		return
+	}
 
 	result, err :=
 		h.orderService.
@@ -330,12 +351,22 @@ func (h *Handler) GetUserOrdersCursor(
 		r.URL.Query().
 			Get("cursor")
 
-	limit :=
+	limit, err :=
 		intQuery(
 			r,
 			"limit",
 			services.DefaultLimit,
 		)
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
+		)
+		return
+	}
 
 	result, err :=
 		h.orderService.

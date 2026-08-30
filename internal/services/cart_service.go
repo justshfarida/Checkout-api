@@ -5,10 +5,12 @@ import (
 
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
+	"checkout-api/internal/validation"
 )
 
 type CartService struct {
-	repo repositories.CartRepository
+	repo     repositories.CartRepository
+	itemRepo repositories.ItemRepository
 }
 
 func NewCartService(
@@ -114,6 +116,25 @@ func (s *CartService) UpsertCartItem(
 	itemID int,
 	quantity int,
 ) error {
+	item, err := s.itemRepo.GetItem(
+		ctx,
+		itemID,
+	)
+	if err != nil {
+		return err
+	}
+
+	if item == nil {
+		return ErrItemNotFound
+	}
+
+	if err := validation.ValidateStock(
+		item.Stock,
+		quantity,
+	); err != nil {
+		return err
+	}
+
 	return s.repo.UpsertCartItem(
 		ctx,
 		userID,

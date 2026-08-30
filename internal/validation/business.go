@@ -7,7 +7,6 @@ import (
 
 var (
 	ErrInsufficientStock = errors.New("insufficient stock")
-	ErrEmptyOrder        = errors.New("order must contain at least one item")
 )
 
 func ValidateStock(
@@ -21,16 +20,6 @@ func ValidateStock(
 			stock,
 			quantity,
 		)
-	}
-
-	return nil
-}
-
-func ValidateOrderItemsCount(
-	count int,
-) error {
-	if count == 0 {
-		return ErrEmptyOrder
 	}
 
 	return nil

@@ -12,19 +12,39 @@ func (h *Handler) GetItems(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	limit :=
+	limit, err :=
 		intQuery(
 			r,
 			"limit",
 			services.DefaultLimit,
 		)
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
+		)
+		return
+	}
 
-	offset :=
+	offset, err :=
 		intQuery(
 			r,
 			"offset",
 			0,
 		)
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
+		)
+		return
+	}
 
 	result, err :=
 		h.itemService.GetItemsOffset(
@@ -120,12 +140,22 @@ func (h *Handler) GetItemsCursor(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().
 			Get("cursor")
 
-	limit :=
+	limit, err :=
 		intQuery(
 			r,
 			"limit",
 			services.DefaultLimit,
 		)
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
+		)
+		return
+	}
 
 	result, err :=
 		h.itemService.GetItemsCursor(

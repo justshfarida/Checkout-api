@@ -3,11 +3,8 @@ package services
 import (
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 )
-
-var ErrInvalidCursor = errors.New("invalid cursor")
 
 type cursorPayload struct {
 	LastID int `json:"id"`

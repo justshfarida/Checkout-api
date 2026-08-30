@@ -56,11 +56,10 @@ func (h *Handler) UpsertCartItem(
 
 	var req UpsertCartItemRequest
 
-	if err :=
-		json.NewDecoder(
-			r.Body,
-		).Decode(&req); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
 
+	if err := dec.Decode(&req); err != nil {
 		http.Error(
 			w,
 			"invalid request body",
@@ -69,11 +68,13 @@ func (h *Handler) UpsertCartItem(
 		return
 	}
 
-	if req.Quantity <= 0 {
-		http.Error(
+	if err := h.validate.Struct(req); err != nil {
+		writeJSON(
 			w,
-			"quantity must be greater than 0",
-			http.StatusBadRequest,
+			http.StatusUnprocessableEntity,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
 		)
 		return
 	}
@@ -181,17 +182,37 @@ func (h *Handler) GetUserCart(
 		return
 	}
 
-	limit := intQuery(
+	limit, err := intQuery(
 		r,
 		"limit",
 		services.DefaultLimit,
 	)
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
+		)
+		return
+	}
 
-	offset := intQuery(
+	offset, err := intQuery(
 		r,
 		"offset",
 		0,
 	)
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
+		)
+		return
+	}
 
 	result, err := h.cartService.GetUserCartOffset(
 		r.Context(),
@@ -263,11 +284,21 @@ func (h *Handler) GetUserCartCursor(
 		"cursor",
 	)
 
-	limit := intQuery(
+	limit, err := intQuery(
 		r,
 		"limit",
 		services.DefaultLimit,
 	)
+	if err != nil {
+		writeJSON(
+			w,
+			http.StatusBadRequest,
+			ErrorMessageResponse{
+				Message: err.Error(),
+			},
+		)
+		return
+	}
 
 	result, err := h.cartService.GetUserCartCursor(
 		r.Context(),
