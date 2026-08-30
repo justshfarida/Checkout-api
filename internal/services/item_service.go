@@ -14,6 +14,7 @@ type ItemOffsetResult struct {
 	Items  []*models.Item `json:"items"`
 	Limit  int            `json:"limit"`
 	Offset int            `json:"offset"`
+	Total  int            `json:"total"`
 }
 
 type ItemCursorResult struct {
@@ -74,10 +75,18 @@ func (s *ItemService) GetItemsOffset(
 		return ItemOffsetResult{}, err
 	}
 
+	total, err :=
+		s.repo.CountItems(ctx)
+
+	if err != nil {
+		return ItemOffsetResult{}, err
+	}
+
 	return ItemOffsetResult{
 		Items:  items,
 		Limit:  limit,
 		Offset: offset,
+		Total:  total,
 	}, nil
 }
 func (s *ItemService) GetItemsCursor(

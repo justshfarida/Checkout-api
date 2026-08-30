@@ -189,3 +189,25 @@ func (r *PostgresRepository) GetItemsCursor(
 
 	return items, nil
 }
+func (r *PostgresRepository) CountItems(
+	ctx context.Context,
+) (int, error) {
+	var total int
+
+	err := r.pool.QueryRow(
+		ctx,
+		`
+		SELECT COUNT(*)
+		FROM items
+		`,
+	).Scan(&total)
+
+	if err != nil {
+		return 0, fmt.Errorf(
+			"failed to count items: %w",
+			err,
+		)
+	}
+
+	return total, nil
+}

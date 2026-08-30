@@ -21,6 +21,9 @@ type ItemRepository interface {
 		lastID int,
 		limit int,
 	) ([]*models.Item, error)
+	CountItems(
+		ctx context.Context,
+	) (int, error)
 }
 
 type CartRepository interface {
