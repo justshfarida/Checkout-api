@@ -2,10 +2,6 @@ package handlers
 
 import "time"
 
-type ErrorMessageResponse struct {
-	Message string `json:"message"`
-}
-
 // PaymentResult represents a response from the payment provider.
 type PaymentResult struct {
 	Success       bool   `json:"success"`
@@ -86,11 +82,4 @@ type OrderCursorResponse struct {
 	Orders     []UserOrderResponse `json:"orders"`
 	NextCursor string              `json:"next_cursor,omitempty"`
 	HasMore    bool                `json:"has_more"`
-}
-
-//new unified error response
-type ErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message"`
-	Field   string `json:"field,omitempty"`
 }

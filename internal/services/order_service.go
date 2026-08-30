@@ -2,20 +2,36 @@ package services
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
+	"checkout-api/internal/validation"
 )
 
+type PaymentResult struct {
+	Success       bool
+	TransactionID string
+	Error         string
+}
+
+type CreateOrderResult struct {
+	Order   *models.Order
+	Payment PaymentResult
+}
 type OrderService struct {
-	repo repositories.OrderRepository
+	repo     repositories.OrderRepository
+	itemRepo repositories.ItemRepository
 }
 
 func NewOrderService(
 	repo repositories.OrderRepository,
+	itemRepo repositories.ItemRepository,
 ) *OrderService {
 	return &OrderService{
-		repo: repo,
+		repo:     repo,
+		itemRepo: itemRepo,
 	}
 }
 
@@ -31,6 +47,26 @@ type OrderCursorResult struct {
 	HasMore    bool               `json:"has_more"`
 }
 
+func mockProcessPayment(
+	amount int,
+) PaymentResult {
+	amount /= 100
+
+	if amount > 0 && amount < 40 {
+		return PaymentResult{
+			Success: true,
+			TransactionID: fmt.Sprintf(
+				"txn_%d",
+				time.Now().UnixNano(),
+			),
+		}
+	}
+
+	return PaymentResult{
+		Success: false,
+		Error:   "Payment declined",
+	}
+}
 func (s *OrderService) GetOrdersByUserIDOffset(
 	ctx context.Context,
 	userID int,
@@ -125,17 +161,62 @@ func (s *OrderService) CreateOrder(
 	userID int,
 	items []models.LineItem,
 	total int,
-	status string,
-) (*models.Order, error) {
-	return s.repo.CreateOrder(
+) (*CreateOrderResult, error) {
+
+	for _, line := range items {
+		item, err := s.itemRepo.GetItem(
+			ctx,
+			line.ItemID,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if item == nil {
+			return nil, ErrItemNotFound
+		}
+
+		if err := validation.ValidateStock(
+			item.Stock,
+			line.Quantity,
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	order, err := s.repo.CreateOrder(
 		ctx,
 		userID,
 		items,
 		total,
-		status,
+		"pending",
 	)
-}
+	if err != nil {
+		return nil, err
+	}
 
+	payment := mockProcessPayment(total)
+
+	status := "paid"
+	if !payment.Success {
+		status = "failed"
+	}
+
+	if err := s.repo.UpdateOrderStatus(
+		ctx,
+		order.ID,
+		status,
+	); err != nil {
+		return nil, err
+	}
+
+	order.Status = status
+
+	return &CreateOrderResult{
+		Order:   order,
+		Payment: payment,
+	}, nil
+}
 func (s *OrderService) UpdateOrderStatus(
 	ctx context.Context,
 	orderID int,

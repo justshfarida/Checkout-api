@@ -1,11 +1,10 @@
 package handlers
 
 import (
-	"checkout-api/internal/services"
-	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
+
+	"checkout-api/internal/services"
 )
 
 func (h *Handler) GetItems(
@@ -18,13 +17,13 @@ func (h *Handler) GetItems(
 			"limit",
 			services.DefaultLimit,
 		)
+
 	if err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusBadRequest,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"INVALID_QUERY_PARAMETER",
+			err.Error(),
 		)
 		return
 	}
@@ -35,13 +34,13 @@ func (h *Handler) GetItems(
 			"offset",
 			0,
 		)
+
 	if err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusBadRequest,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"INVALID_QUERY_PARAMETER",
+			err.Error(),
 		)
 		return
 	}
@@ -54,10 +53,9 @@ func (h *Handler) GetItems(
 		)
 
 	if err != nil {
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
@@ -77,10 +75,11 @@ func (h *Handler) GetItemByID(
 		r.PathValue("item_id")
 
 	if itemIDStr == "" {
-		http.Error(
+		writeError(
 			w,
-			"Not Found",
-			http.StatusNotFound,
+			http.StatusBadRequest,
+			"INVALID_ITEM_ID",
+			"item_id is required",
 		)
 		return
 	}
@@ -88,13 +87,12 @@ func (h *Handler) GetItemByID(
 	itemID, err :=
 		strconv.Atoi(itemIDStr)
 
-	if err != nil {
-		writeJSON(
+	if err != nil || itemID <= 0 {
+		writeError(
 			w,
-			http.StatusUnprocessableEntity,
-			ErrorMessageResponse{
-				Message: "item_id must be an integer",
-			},
+			http.StatusBadRequest,
+			"INVALID_ITEM_ID",
+			"item_id must be a positive integer",
 		)
 		return
 	}
@@ -106,36 +104,24 @@ func (h *Handler) GetItemByID(
 		)
 
 	if err != nil {
-		fmt.Printf(
-			"failed to get item: %v\n",
+		handleError(
+			w,
 			err,
-		)
-
-		http.Error(
-			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
-		)
-		return
-	}
-
-	if item == nil {
-		writeJSON(
-			w,
-			http.StatusNotFound,
-			nil,
 		)
 		return
 	}
 
 	writeJSON(
-
 		w,
 		http.StatusOK,
 		item,
 	)
 }
-func (h *Handler) GetItemsCursor(w http.ResponseWriter, r *http.Request) {
+
+func (h *Handler) GetItemsCursor(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
 	rawCursor :=
 		r.URL.Query().
 			Get("cursor")
@@ -146,13 +132,13 @@ func (h *Handler) GetItemsCursor(w http.ResponseWriter, r *http.Request) {
 			"limit",
 			services.DefaultLimit,
 		)
+
 	if err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusBadRequest,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"INVALID_QUERY_PARAMETER",
+			err.Error(),
 		)
 		return
 	}
@@ -165,24 +151,9 @@ func (h *Handler) GetItemsCursor(w http.ResponseWriter, r *http.Request) {
 		)
 
 	if err != nil {
-		if errors.Is(
-			err,
-			services.ErrInvalidCursor,
-		) {
-			writeJSON(
-				w,
-				http.StatusBadRequest,
-				ErrorMessageResponse{
-					Message: "invalid cursor",
-				},
-			)
-			return
-		}
-
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}

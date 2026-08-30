@@ -2,8 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -11,29 +9,6 @@ import (
 	"checkout-api/internal/models"
 	"checkout-api/internal/services"
 )
-
-func mockProcessPayment(
-	amount int,
-) PaymentResult {
-	amount /= 100
-
-	if amount > 0 &&
-		amount < 40 {
-
-		return PaymentResult{
-			Success: true,
-			TransactionID: fmt.Sprintf(
-				"txn_%d",
-				time.Now().UnixNano(),
-			),
-		}
-	}
-
-	return PaymentResult{
-		Success: false,
-		Error:   "Payment declined",
-	}
-}
 
 func (h *Handler) CreateOrder(
 	w http.ResponseWriter,
@@ -45,10 +20,11 @@ func (h *Handler) CreateOrder(
 		)
 
 	if !ok {
-		http.Error(
+		writeError(
 			w,
-			"Unauthorized",
 			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
 		)
 		return
 	}
@@ -59,19 +35,19 @@ func (h *Handler) CreateOrder(
 		)
 
 	if idempotencyKey == "" {
-		http.Error(
+		writeError(
 			w,
-			"Idempotency-Key header is required",
 			http.StatusBadRequest,
+			"IDEMPOTENCY_KEY_REQUIRED",
+			"Idempotency-Key header is required",
 		)
 		return
 	}
 
-	if record, exists := h.idempotencyCache[idempotencyKey]; exists {
+	if record, exists :=
+		h.idempotencyCache[idempotencyKey]; exists {
 
-		if time.Now().
-			Before(record.Expiry) {
-
+		if time.Now().Before(record.Expiry) {
 			w.Header().
 				Set(
 					"Content-Type",
@@ -98,25 +74,30 @@ func (h *Handler) CreateOrder(
 
 	var req CreateOrderRequest
 
-	dec := json.NewDecoder(r.Body)
+	dec :=
+		json.NewDecoder(
+			r.Body,
+		)
+
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&req); err != nil {
-		http.Error(
+		writeError(
 			w,
-			"invalid request body",
 			http.StatusBadRequest,
+			"INVALID_JSON",
+			"Invalid request body",
 		)
 		return
 	}
 
 	if err := h.validate.Struct(req); err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusUnprocessableEntity,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"VALIDATION_FAILED",
+			"Request validation failed",
+			validationDetails(err)...,
 		)
 		return
 	}
@@ -129,7 +110,6 @@ func (h *Handler) CreateOrder(
 		)
 
 	for _, i := range req.LineItems {
-
 		items = append(
 			items,
 			models.LineItem{
@@ -140,81 +120,58 @@ func (h *Handler) CreateOrder(
 		)
 	}
 
-	order, err :=
+	result, err :=
 		h.orderService.CreateOrder(
 			r.Context(),
 			userID,
 			items,
 			req.Total,
-			"pending",
 		)
 
 	if err != nil {
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
-
-	paymentResult :=
-		mockProcessPayment(
-			req.Total,
-		)
-
-	status := "paid"
-
-	if !paymentResult.Success {
-		status = "failed"
-	}
-
-	err =
-		h.orderService.
-			UpdateOrderStatus(
-				r.Context(),
-				order.ID,
-				status,
-			)
-
-	if err != nil {
-		http.Error(
-			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
-		)
-		return
-	}
-
-	order.Status = status
-
-	responseData :=
-		map[string]any{
-			"order":   order,
-			"payment": paymentResult,
-		}
 
 	statusCode :=
 		http.StatusCreated
 
-	if !paymentResult.Success {
+	if !result.Payment.Success {
 		statusCode =
 			http.StatusPaymentRequired
 	}
 
-	responseBody, _ :=
+	responseData :=
+		map[string]any{
+			"order":   result.Order,
+			"payment": result.Payment,
+		}
+
+	responseBody, err :=
 		json.Marshal(
 			responseData,
 		)
 
-	h.idempotencyCache[idempotencyKey] = &IdempotencyRecord{
-		Response:   responseBody,
-		StatusCode: statusCode,
-		Expiry: time.Now().
-			Add(
-				24 * time.Hour,
-			),
+	if err != nil {
+		handleError(
+			w,
+			err,
+		)
+		return
 	}
+
+	h.idempotencyCache[idempotencyKey] =
+		&IdempotencyRecord{
+			Response:   responseBody,
+			StatusCode: statusCode,
+			Expiry: time.Now().
+				Add(
+					24 * time.Hour,
+				),
+		}
 
 	w.Header().
 		Set(
@@ -242,10 +199,11 @@ func (h *Handler) GetUserOrders(
 		)
 
 	if !ok {
-		http.Error(
+		writeError(
 			w,
-			"Unauthorized",
 			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
 		)
 		return
 	}
@@ -256,13 +214,13 @@ func (h *Handler) GetUserOrders(
 			"limit",
 			services.DefaultLimit,
 		)
+
 	if err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusBadRequest,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"INVALID_QUERY_PARAMETER",
+			err.Error(),
 		)
 		return
 	}
@@ -273,13 +231,13 @@ func (h *Handler) GetUserOrders(
 			"offset",
 			0,
 		)
+
 	if err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusBadRequest,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"INVALID_QUERY_PARAMETER",
+			err.Error(),
 		)
 		return
 	}
@@ -294,10 +252,9 @@ func (h *Handler) GetUserOrders(
 			)
 
 	if err != nil {
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
@@ -310,7 +267,6 @@ func (h *Handler) GetUserOrders(
 		)
 
 	for _, order := range result.Orders {
-
 		response = append(
 			response,
 			mapUserOrderResponse(
@@ -329,6 +285,7 @@ func (h *Handler) GetUserOrders(
 		},
 	)
 }
+
 func (h *Handler) GetUserOrdersCursor(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -339,10 +296,11 @@ func (h *Handler) GetUserOrdersCursor(
 		)
 
 	if !ok {
-		http.Error(
+		writeError(
 			w,
-			"Unauthorized",
 			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
 		)
 		return
 	}
@@ -357,13 +315,13 @@ func (h *Handler) GetUserOrdersCursor(
 			"limit",
 			services.DefaultLimit,
 		)
+
 	if err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusBadRequest,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"INVALID_QUERY_PARAMETER",
+			err.Error(),
 		)
 		return
 	}
@@ -378,24 +336,9 @@ func (h *Handler) GetUserOrdersCursor(
 			)
 
 	if err != nil {
-		if errors.Is(
-			err,
-			services.ErrInvalidCursor,
-		) {
-			writeJSON(
-				w,
-				http.StatusBadRequest,
-				ErrorMessageResponse{
-					Message: "invalid cursor",
-				},
-			)
-			return
-		}
-
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
@@ -408,7 +351,6 @@ func (h *Handler) GetUserOrdersCursor(
 		)
 
 	for _, order := range result.Orders {
-
 		response = append(
 			response,
 			mapUserOrderResponse(
@@ -427,6 +369,7 @@ func (h *Handler) GetUserOrdersCursor(
 		},
 	)
 }
+
 func mapUserOrderResponse(
 	order models.UserOrder,
 ) UserOrderResponse {
@@ -438,7 +381,6 @@ func mapUserOrderResponse(
 		)
 
 	for _, item := range order.Items {
-
 		items = append(
 			items,
 			OrderItemResponse{

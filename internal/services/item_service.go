@@ -34,7 +34,23 @@ func (s *ItemService) GetItem(
 	ctx context.Context,
 	id int,
 ) (*models.Item, error) {
-	return s.repo.GetItem(ctx, id)
+	item, err := s.repo.GetItem(
+		ctx,
+		id,
+	)
+
+	// Real database/infrastructure problem.
+	if err != nil {
+		return nil, err
+	}
+
+	// Database worked, but item doesn't exist.
+	if item == nil {
+		return nil, ErrItemNotFound
+	}
+
+	// Success.
+	return item, nil
 }
 func (s *ItemService) GetItemsOffset(
 	ctx context.Context,

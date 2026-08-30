@@ -28,26 +28,29 @@ func (h *Handler) LoginUser(
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&req); err != nil {
-		http.Error(
+		writeError(
 			w,
-			"invalid body",
 			http.StatusBadRequest,
+			"INVALID_JSON",
+			"Invalid request body",
 		)
 		return
 	}
 
+	// SANITIZE
 	req.Email =
 		validation.SanitizeEmail(
 			req.Email,
 		)
 
+	// SHAPE VALIDATION
 	if err := h.validate.Struct(req); err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusUnprocessableEntity,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"VALIDATION_FAILED",
+			"Request validation failed",
+			validationDetails(err)...,
 		)
 		return
 	}
@@ -60,25 +63,18 @@ func (h *Handler) LoginUser(
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeJSON(
+			writeError(
 				w,
-				http.StatusUnprocessableEntity,
-				ErrorMessageResponse{
-					Message: "user does not exist",
-				},
+				http.StatusUnauthorized,
+				"INVALID_CREDENTIALS",
+				"Email or password is incorrect",
 			)
 			return
 		}
 
-		fmt.Printf(
-			"cannot query user: %v\n",
-			err,
-		)
-
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
@@ -87,10 +83,11 @@ func (h *Handler) LoginUser(
 		user.Hash,
 		[]byte(req.Password),
 	); err != nil {
-		http.Error(
+		writeError(
 			w,
-			"Unauthorized",
 			http.StatusUnauthorized,
+			"INVALID_CREDENTIALS",
+			"Email or password is incorrect",
 		)
 		return
 	}
@@ -100,20 +97,21 @@ func (h *Handler) LoginUser(
 			15 * time.Minute,
 		)
 
-	token := jwt.NewWithClaims(
-		jwt.SigningMethodHS256,
-		jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(
-				accessExpiresAt,
-			),
-			Subject: strconv.Itoa(
-				user.ID,
-			),
-			IssuedAt: jwt.NewNumericDate(
-				time.Now(),
-			),
-		},
-	)
+	token :=
+		jwt.NewWithClaims(
+			jwt.SigningMethodHS256,
+			jwt.RegisteredClaims{
+				ExpiresAt: jwt.NewNumericDate(
+					accessExpiresAt,
+				),
+				Subject: strconv.Itoa(
+					user.ID,
+				),
+				IssuedAt: jwt.NewNumericDate(
+					time.Now(),
+				),
+			},
+		)
 
 	signedJWT, err :=
 		token.SignedString(
@@ -121,15 +119,12 @@ func (h *Handler) LoginUser(
 		)
 
 	if err != nil {
-		fmt.Printf(
-			"cannot generate signed JWT: %v\n",
-			err,
-		)
-
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			fmt.Errorf(
+				"failed to sign access token: %w",
+				err,
+			),
 		)
 		return
 	}
@@ -138,15 +133,9 @@ func (h *Handler) LoginUser(
 		generateRefreshToken()
 
 	if err != nil {
-		fmt.Printf(
-			"cannot generate refresh token: %v\n",
-			err,
-		)
-
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
@@ -170,15 +159,9 @@ func (h *Handler) LoginUser(
 		)
 
 	if err != nil {
-		fmt.Printf(
-			"cannot save refresh token: %v\n",
-			err,
-		)
-
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
@@ -211,32 +194,34 @@ func (h *Handler) CreateUser(
 	r *http.Request,
 ) {
 	var req AuthRequest
+
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&req); err != nil {
-		http.Error(
+		writeError(
 			w,
-			"invalid body",
 			http.StatusBadRequest,
+			"INVALID_JSON",
+			"Invalid request body",
 		)
 		return
 	}
 
-	// 1. SANITIZE
+	// SANITIZE
 	req.Email =
 		validation.SanitizeEmail(
 			req.Email,
 		)
 
-	// 2. SHAPE VALIDATION
+	// SHAPE VALIDATION
 	if err := h.validate.Struct(req); err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusUnprocessableEntity,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"VALIDATION_FAILED",
+			"Request validation failed",
+			validationDetails(err)...,
 		)
 		return
 	}
@@ -248,10 +233,12 @@ func (h *Handler) CreateUser(
 		)
 
 	if err != nil {
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			fmt.Errorf(
+				"failed to hash password: %w",
+				err,
+			),
 		)
 		return
 	}
@@ -264,18 +251,15 @@ func (h *Handler) CreateUser(
 		)
 
 	if err != nil {
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
 
-	writeJSON(
-		w,
+	w.WriteHeader(
 		http.StatusCreated,
-		nil,
 	)
 }
 
@@ -293,18 +277,20 @@ func (h *Handler) IssueJWT(
 			err,
 			http.ErrNoCookie,
 		) {
-			http.Error(
+			writeError(
 				w,
-				"Refresh token is missing",
 				http.StatusUnauthorized,
+				"REFRESH_TOKEN_REQUIRED",
+				"Refresh token is missing",
 			)
 			return
 		}
 
-		http.Error(
+		writeError(
 			w,
-			"Unauthorized",
 			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication failed",
 		)
 		return
 	}
@@ -313,10 +299,11 @@ func (h *Handler) IssueJWT(
 		cookie.Value
 
 	if oldRefreshToken == "" {
-		http.Error(
+		writeError(
 			w,
-			"Refresh token is missing",
 			http.StatusUnauthorized,
+			"REFRESH_TOKEN_REQUIRED",
+			"Refresh token is missing",
 		)
 		return
 	}
@@ -325,15 +312,9 @@ func (h *Handler) IssueJWT(
 		generateRefreshToken()
 
 	if err != nil {
-		fmt.Printf(
-			"failed to generate refresh token: %v\n",
-			err,
-		)
-
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
@@ -362,15 +343,11 @@ func (h *Handler) IssueJWT(
 		)
 
 	if err != nil {
-		fmt.Printf(
-			"failed to rotate refresh token: %v\n",
-			err,
-		)
-
-		http.Error(
+		writeError(
 			w,
-			"Invalid or expired refresh token",
 			http.StatusUnauthorized,
+			"INVALID_REFRESH_TOKEN",
+			"Refresh token is invalid or expired",
 		)
 		return
 	}
@@ -380,20 +357,21 @@ func (h *Handler) IssueJWT(
 			5 * time.Minute,
 		)
 
-	token := jwt.NewWithClaims(
-		jwt.SigningMethodHS256,
-		jwt.RegisteredClaims{
-			Subject: strconv.Itoa(
-				userID,
-			),
-			IssuedAt: jwt.NewNumericDate(
-				time.Now(),
-			),
-			ExpiresAt: jwt.NewNumericDate(
-				accessExpiresAt,
-			),
-		},
-	)
+	token :=
+		jwt.NewWithClaims(
+			jwt.SigningMethodHS256,
+			jwt.RegisteredClaims{
+				Subject: strconv.Itoa(
+					userID,
+				),
+				IssuedAt: jwt.NewNumericDate(
+					time.Now(),
+				),
+				ExpiresAt: jwt.NewNumericDate(
+					accessExpiresAt,
+				),
+			},
+		)
 
 	signedJWT, err :=
 		token.SignedString(
@@ -401,15 +379,12 @@ func (h *Handler) IssueJWT(
 		)
 
 	if err != nil {
-		fmt.Printf(
-			"failed to sign JWT: %v\n",
-			err,
-		)
-
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			fmt.Errorf(
+				"failed to sign access token: %w",
+				err,
+			),
 		)
 		return
 	}

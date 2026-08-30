@@ -15,9 +15,12 @@ type CartService struct {
 
 func NewCartService(
 	repo repositories.CartRepository,
+	itemRepo repositories.ItemRepository,
+
 ) *CartService {
 	return &CartService{
-		repo: repo,
+		repo:     repo,
+		itemRepo: itemRepo,
 	}
 }
 

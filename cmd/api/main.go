@@ -81,10 +81,12 @@ func main() {
 	cartService :=
 		services.NewCartService(
 			repo,
+			repo,
 		)
 
 	orderService :=
 		services.NewOrderService(
+			repo,
 			repo,
 		)
 

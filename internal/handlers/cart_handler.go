@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -20,10 +19,11 @@ func (h *Handler) UpsertCartItem(
 		)
 
 	if !ok {
-		http.Error(
+		writeError(
 			w,
-			"Unauthorized",
 			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
 		)
 		return
 	}
@@ -32,10 +32,11 @@ func (h *Handler) UpsertCartItem(
 		r.PathValue("item_id")
 
 	if itemIDStr == "" {
-		http.Error(
+		writeError(
 			w,
-			"missing item_id",
 			http.StatusBadRequest,
+			"INVALID_ITEM_ID",
+			"item_id is required",
 		)
 		return
 	}
@@ -43,38 +44,42 @@ func (h *Handler) UpsertCartItem(
 	itemID, err :=
 		strconv.Atoi(itemIDStr)
 
-	if err != nil {
-		writeJSON(
+	if err != nil || itemID <= 0 {
+		writeError(
 			w,
-			http.StatusUnprocessableEntity,
-			ErrorMessageResponse{
-				Message: "item_id must be integer",
-			},
+			http.StatusBadRequest,
+			"INVALID_ITEM_ID",
+			"item_id must be a positive integer",
 		)
 		return
 	}
 
 	var req UpsertCartItemRequest
 
-	dec := json.NewDecoder(r.Body)
+	dec :=
+		json.NewDecoder(
+			r.Body,
+		)
+
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&req); err != nil {
-		http.Error(
+		writeError(
 			w,
-			"invalid request body",
 			http.StatusBadRequest,
+			"INVALID_JSON",
+			"Invalid request body",
 		)
 		return
 	}
 
 	if err := h.validate.Struct(req); err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusUnprocessableEntity,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"VALIDATION_FAILED",
+			"Request validation failed",
+			validationDetails(err)...,
 		)
 		return
 	}
@@ -88,10 +93,9 @@ func (h *Handler) UpsertCartItem(
 		)
 
 	if err != nil {
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
@@ -111,10 +115,11 @@ func (h *Handler) RemoveCartItem(
 		)
 
 	if !ok {
-		http.Error(
+		writeError(
 			w,
-			"Unauthorized",
 			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
 		)
 		return
 	}
@@ -123,10 +128,11 @@ func (h *Handler) RemoveCartItem(
 		r.PathValue("item_id")
 
 	if itemIDStr == "" {
-		http.Error(
+		writeError(
 			w,
-			"missing item_id",
 			http.StatusBadRequest,
+			"INVALID_ITEM_ID",
+			"item_id is required",
 		)
 		return
 	}
@@ -134,13 +140,12 @@ func (h *Handler) RemoveCartItem(
 	itemID, err :=
 		strconv.Atoi(itemIDStr)
 
-	if err != nil {
-		writeJSON(
+	if err != nil || itemID <= 0 {
+		writeError(
 			w,
-			http.StatusUnprocessableEntity,
-			ErrorMessageResponse{
-				Message: "item_id must be integer",
-			},
+			http.StatusBadRequest,
+			"INVALID_ITEM_ID",
+			"item_id must be a positive integer",
 		)
 		return
 	}
@@ -153,10 +158,9 @@ func (h *Handler) RemoveCartItem(
 		)
 
 	if err != nil {
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
@@ -165,78 +169,85 @@ func (h *Handler) RemoveCartItem(
 		http.StatusNoContent,
 	)
 }
+
 func (h *Handler) GetUserCart(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	userID, ok := middlewares.UserIDFromContext(
-		r.Context(),
-	)
+	userID, ok :=
+		middlewares.UserIDFromContext(
+			r.Context(),
+		)
 
 	if !ok {
-		http.Error(
+		writeError(
 			w,
-			"Unauthorized",
 			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
 		)
 		return
 	}
 
-	limit, err := intQuery(
-		r,
-		"limit",
-		services.DefaultLimit,
-	)
+	limit, err :=
+		intQuery(
+			r,
+			"limit",
+			services.DefaultLimit,
+		)
+
 	if err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusBadRequest,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"INVALID_QUERY_PARAMETER",
+			err.Error(),
 		)
 		return
 	}
 
-	offset, err := intQuery(
-		r,
-		"offset",
-		0,
-	)
+	offset, err :=
+		intQuery(
+			r,
+			"offset",
+			0,
+		)
+
 	if err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusBadRequest,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"INVALID_QUERY_PARAMETER",
+			err.Error(),
 		)
 		return
 	}
 
-	result, err := h.cartService.GetUserCartOffset(
-		r.Context(),
-		userID,
-		limit,
-		offset,
-	)
+	result, err :=
+		h.cartService.GetUserCartOffset(
+			r.Context(),
+			userID,
+			limit,
+			offset,
+		)
 
 	if err != nil {
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
 
-	items := make(
-		[]CartItemResponse,
-		0,
-		len(result.Items),
-	)
+	items :=
+		make(
+			[]CartItemResponse,
+			0,
+			len(result.Items),
+		)
 
 	for _, item := range result.Items {
+
 		items = append(
 			items,
 			CartItemResponse{
@@ -267,76 +278,67 @@ func (h *Handler) GetUserCartCursor(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	userID, ok := middlewares.UserIDFromContext(
-		r.Context(),
-	)
+	userID, ok :=
+		middlewares.UserIDFromContext(
+			r.Context(),
+		)
 
 	if !ok {
-		http.Error(
+		writeError(
 			w,
-			"Unauthorized",
 			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
 		)
 		return
 	}
 
-	cursor := r.URL.Query().Get(
-		"cursor",
-	)
+	cursor :=
+		r.URL.Query().
+			Get("cursor")
 
-	limit, err := intQuery(
-		r,
-		"limit",
-		services.DefaultLimit,
-	)
+	limit, err :=
+		intQuery(
+			r,
+			"limit",
+			services.DefaultLimit,
+		)
+
 	if err != nil {
-		writeJSON(
+		writeError(
 			w,
 			http.StatusBadRequest,
-			ErrorMessageResponse{
-				Message: err.Error(),
-			},
+			"INVALID_QUERY_PARAMETER",
+			err.Error(),
 		)
 		return
 	}
 
-	result, err := h.cartService.GetUserCartCursor(
-		r.Context(),
-		userID,
-		cursor,
-		limit,
-	)
+	result, err :=
+		h.cartService.GetUserCartCursor(
+			r.Context(),
+			userID,
+			cursor,
+			limit,
+		)
 
 	if err != nil {
-		if errors.Is(
-			err,
-			services.ErrInvalidCursor,
-		) {
-			writeJSON(
-				w,
-				http.StatusBadRequest,
-				ErrorMessageResponse{
-					Message: "invalid cursor",
-				},
-			)
-			return
-		}
-
-		http.Error(
+		handleError(
 			w,
-			"Internal Server Error",
-			http.StatusInternalServerError,
+			err,
 		)
 		return
 	}
 
-	items := make(
-		[]CartItemResponse,
-		0,
-		len(result.Items),
-	)
+	items :=
+		make(
+			[]CartItemResponse,
+			0,
+			len(result.Items),
+		)
 
 	for _, item := range result.Items {
+
 		items = append(
 			items,
 			CartItemResponse{
