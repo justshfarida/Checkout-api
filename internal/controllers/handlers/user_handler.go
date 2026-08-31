@@ -34,6 +34,16 @@ func NewUserHandler(service UserService, refreshService RefreshTokenSaver, authM
 	return &UserHandler{service: service, refreshService: refreshService, authManager: authManager}
 }
 
+// SignUp registers a new user.
+// @Summary Create a new user account
+// @Description Registers a new user with a username and password
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body dtos.SignUpRequest true "New user details"
+// @Success 201 {object} models.User
+// @Failure 400 {object} httperror.Envelope
+// @Router /signup [post]
 func (handler *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -65,6 +75,15 @@ func (handler *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, user)
 }
 
+// Login authenticates a user and issues a token pair.
+// @Summary Log in
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body dtos.LoginRequest true "Credentials"
+// @Success 200 {object} dtos.LoginResponse
+// @Failure 401 {object} httperror.Envelope
+// @Router /login [post]
 func (handler *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

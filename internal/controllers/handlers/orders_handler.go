@@ -24,6 +24,19 @@ func NewOrdersHandler(service OrdersService) *OrdersHandler {
 	return &OrdersHandler{service: service}
 }
 
+// CreateOrder places an order from the user's cart.
+// @Summary Create an order
+// @Description Creates an order from the authenticated user's cart. Safe to retry: pass the same Idempotency-Key with the same body to avoid duplicate orders.
+// @Tags orders
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param Idempotency-Key header string true "Client-generated idempotency key"
+// @Success 201 {object} service.PlaceOrderResult
+// @Success 402 {object} service.PlaceOrderResult "Payment required — payment failed"
+// @Failure 400 {object} httperror.Envelope
+// @Failure 401 {object} httperror.Envelope
+// @Router /user/orders [post]
 func (handler *OrdersHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -55,6 +68,14 @@ func (handler *OrdersHandler) CreateOrder(w http.ResponseWriter, r *http.Request
 	writeJSON(w, result.StatusCode, result.Body)
 }
 
+// GetOrdersByUserID lists the current user's orders.
+// @Summary List the current user's orders
+// @Tags orders
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.Order
+// @Failure 401 {object} httperror.Envelope
+// @Router /user/orders [get]
 func (handler *OrdersHandler) GetOrdersByUserID(w http.ResponseWriter, r *http.Request) {
 	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {

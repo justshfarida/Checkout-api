@@ -1,0 +1,474 @@
+basePath: /
+definitions:
+  dtos.CreateUserCartRequest:
+    properties:
+      items:
+        items:
+          properties:
+            item_id:
+              type: integer
+            quantity:
+              type: integer
+          type: object
+        type: array
+      user_id:
+        type: integer
+    type: object
+  dtos.LoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  dtos.LoginResponse:
+    properties:
+      access_token:
+        type: string
+      refresh_token:
+        type: string
+      user:
+        $ref: '#/definitions/models.User'
+    type: object
+  dtos.SignUpRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  dtos.UpdateQuantityRequest:
+    properties:
+      quantity:
+        type: integer
+      user_id:
+        type: integer
+    type: object
+  httperror.Detail:
+    properties:
+      code:
+        type: string
+      fields:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        type: string
+    type: object
+  httperror.Envelope:
+    properties:
+      error:
+        $ref: '#/definitions/httperror.Detail'
+    type: object
+  models.Cart:
+    properties:
+      id:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/models.LineItem'
+        type: array
+      user_id:
+        type: integer
+    type: object
+  models.Item:
+    properties:
+      category:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      price:
+        description: Price in cents
+        type: integer
+      stock:
+        type: integer
+    type: object
+  models.LineItem:
+    properties:
+      item_id:
+        type: integer
+      name:
+        type: string
+      price:
+        type: integer
+      quantity:
+        type: integer
+    type: object
+  models.Order:
+    properties:
+      id:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/models.LineItem'
+        type: array
+      status:
+        type: string
+      total:
+        type: integer
+      user_id:
+        type: integer
+    type: object
+  models.User:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      username:
+        type: string
+    type: object
+  pagination.PageResult-models_Item:
+    properties:
+      has_more:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/models.Item'
+        type: array
+      limit:
+        type: integer
+      next_cursor:
+        type: string
+      offset:
+        type: integer
+      total:
+        type: integer
+    type: object
+  service.PlaceOrderResult:
+    properties:
+      body: {}
+      statusCode:
+        type: integer
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Xsolla School checkout backend — items, cart, orders, auth.
+  title: Checkout API
+  version: "1.0"
+paths:
+  /items:
+    get:
+      description: Returns a paginated list of items. Pass "cursor" for cursor pagination,
+        or "offset" for offset pagination.
+      parameters:
+      - description: Filter by category
+        in: query
+        name: category
+        type: string
+      - description: 'Sort field: price or name'
+        in: query
+        name: sort
+        type: string
+      - description: Page size, max 100
+        in: query
+        name: limit
+        type: integer
+      - description: Offset (offset pagination)
+        in: query
+        name: offset
+        type: integer
+      - description: Opaque cursor (cursor pagination)
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pagination.PageResult-models_Item'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      summary: List items
+      tags:
+      - items
+  /items/{id}:
+    get:
+      parameters:
+      - description: Item ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Item'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      summary: Get an item
+      tags:
+      - items
+  /login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dtos.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.LoginResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      summary: Log in
+      tags:
+      - auth
+  /signup:
+    post:
+      consumes:
+      - application/json
+      description: Registers a new user with a username and password
+      parameters:
+      - description: New user details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dtos.SignUpRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.User'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      summary: Create a new user account
+      tags:
+      - auth
+  /token:
+    post:
+      description: Exchanges a valid refresh token (sent via header) for a new access/refresh
+        token pair
+      parameters:
+      - description: Refresh token
+        in: header
+        name: Refresh-Token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dtos.LoginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      summary: Refresh an access token
+      tags:
+      - auth
+  /user/cart:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Cart'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Get the current user's cart
+      tags:
+      - cart
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Line items to add
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dtos.CreateUserCartRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Cart'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Create a cart and add items
+      tags:
+      - cart
+  /user/cart/items/{id}:
+    delete:
+      parameters:
+      - description: Item ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Cart'
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Remove an item from the cart
+      tags:
+      - cart
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Item ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: New quantity
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dtos.UpdateQuantityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Cart'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      security:
+      - BearerAuth: []
+      summary: Update a cart item's quantity
+      tags:
+      - cart
+  /user/orders:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Order'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+      security:
+      - BearerAuth: []
+      summary: List the current user's orders
+      tags:
+      - orders
+    post:
+      consumes:
+      - application/json
+      description: 'Creates an order from the authenticated user''s cart. Safe to
+        retry: pass the same Idempotency-Key with the same body to avoid duplicate
+        orders.'
+      parameters:
+      - description: Client-generated idempotency key
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/service.PlaceOrderResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httperror.Envelope'
+        "402":
+          description: Payment required — payment failed
+          schema:
+            $ref: '#/definitions/service.PlaceOrderResult'
+      security:
+      - BearerAuth: []
+      summary: Create an order
+      tags:
+      - orders
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and your access token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

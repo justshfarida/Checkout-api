@@ -27,6 +27,17 @@ func NewCartHandler(cartService CartService) *CartHandler {
 	return &CartHandler{cartService: cartService}
 }
 
+// CreateUserCartAndAddItems creates a cart and adds items in one call.
+// @Summary Create a cart and add items
+// @Tags cart
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body dtos.CreateUserCartRequest true "Line items to add"
+// @Success 201 {object} models.Cart
+// @Failure 400 {object} httperror.Envelope
+// @Failure 401 {object} httperror.Envelope
+// @Router /user/cart [post]
 func (handler *CartHandler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		WriteMethodNotAllowed(w)
@@ -63,6 +74,14 @@ func (handler *CartHandler) CreateUserCartAndAddItems(w http.ResponseWriter, r *
 	writeJSON(w, http.StatusCreated, cart)
 }
 
+// GetUserCart returns the authenticated user's cart.
+// @Summary Get the current user's cart
+// @Tags cart
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} models.Cart
+// @Failure 401 {object} httperror.Envelope
+// @Router /user/cart [get]
 func (handler *CartHandler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		WriteMethodNotAllowed(w)
@@ -86,6 +105,18 @@ func (handler *CartHandler) GetUserCart(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, cart)
 }
 
+// UpdateItemQuantity sets the quantity of an item already in the cart.
+// @Summary Update a cart item's quantity
+// @Tags cart
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "Item ID"
+// @Param request body dtos.UpdateQuantityRequest true "New quantity"
+// @Success 200 {object} models.Cart
+// @Failure 400 {object} httperror.Envelope
+// @Failure 401 {object} httperror.Envelope
+// @Router /user/cart/items/{id} [patch]
 func (handler *CartHandler) UpdateItemQuantity(w http.ResponseWriter, r *http.Request) {
 	itemID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
@@ -117,6 +148,16 @@ func (handler *CartHandler) UpdateItemQuantity(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, cart)
 }
 
+// DeleteItem removes an item from the cart.
+// @Summary Remove an item from the cart
+// @Tags cart
+// @Security BearerAuth
+// @Param id path int true "Item ID"
+// @Success 200 {object} models.Cart
+// @Success 204 "No Content"
+// @Failure 400 {object} httperror.Envelope
+// @Failure 401 {object} httperror.Envelope
+// @Router /user/cart/items/{id} [delete]
 func (handler *CartHandler) DeleteItem(w http.ResponseWriter, r *http.Request) {
 	itemID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {

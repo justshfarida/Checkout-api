@@ -12,10 +12,23 @@ import (
 	"net/http"
 	"os"
 
+	_ "checkout-api/docs"
+
+	httpSwagger "github.com/swaggo/http-swagger"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
+// @title Checkout API
+// @version 1.0
+// @description Xsolla School checkout backend — items, cart, orders, auth.
+// @host localhost:8080
+// @BasePath /
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and your access token.
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("no .env file found, relying on real environment variables")
@@ -115,6 +128,7 @@ func main() {
 
 	http.HandleFunc("POST /token", refreshTokenHandler.RefreshToken)
 
+	http.Handle("/swagger/", httpSwagger.WrapHandler)
 	allowedOrigin := os.Getenv("LOCAL_SERVER")
 	if allowedOrigin == "" {
 		allowedOrigin = "http://localhost:5173"
