@@ -39,15 +39,9 @@ func (r *CartRepo) CreateUserCartAndAddItems(ctx context.Context, cart *models.C
 		return fmt.Errorf("unable to create/find cart for user %d: %w", cart.UserID, err)
 	}
 
-	_, err = tx.Exec(ctx, `delete from cart_items where cart_id=$1`, cartID)
-	if err != nil {
+	if _, err := tx.Exec(ctx, `delete from cart_items where cart_id=$1`, cartID); err != nil {
 		return fmt.Errorf("unable to clear existing cart items: %w", err)
 	}
-	tag, err := tx.Exec(ctx, `delete from cart_items where cart_id=$1`, cartID)
-	if err != nil {
-		return fmt.Errorf("unable to clear existing cart items: %w", err)
-	}
-	fmt.Printf("cleared %d old cart items for cart %d\n", tag.RowsAffected(), cartID)
 
 	for _, item := range cart.Items {
 		_, err := tx.Exec(ctx,
@@ -62,6 +56,7 @@ func (r *CartRepo) CreateUserCartAndAddItems(ctx context.Context, cart *models.C
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("unable to commit transaction: %w", err)
 	}
+	cart.ID = fmt.Sprintf("%d", cartID)
 	return nil
 }
 
@@ -104,9 +99,8 @@ func (r *CartRepo) GetUserCart(ctx context.Context, userID int) (*models.Cart, e
 func (r *CartRepo) DeleteUserCart(ctx context.Context, userID int) error {
 	_, err := r.db.Exec(ctx, "delete from carts where user_id=$1", userID)
 	if err != nil {
-		fmt.Printf("unable to delete user cart %d: %w", userID, err)
+		return fmt.Errorf("unable to delete user cart for user %d: %w", userID, err)
 	}
-
 	return nil
 }
 

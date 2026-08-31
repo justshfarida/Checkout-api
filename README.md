@@ -2,7 +2,7 @@
 
 Xsolla School training project — a simplified checkout API built with Go.
 
-Students build this service incrementally across lectures, starting from a basic HTTP server and evolving it into a production-ready system with persistence, authentication, observability, and more.
+Students build this cartService incrementally across lectures, starting from a basic HTTP server and evolving it into a production-ready system with persistence, authentication, observability, and more.
 
 ## Prerequisites
 
@@ -160,3 +160,7 @@ curl -i -X POST http://localhost:8080/orders \
 ``` bash
 curl -i http://localhost:8080/users/1/orders
 ```
+
+
+Week-05 
+Items - done

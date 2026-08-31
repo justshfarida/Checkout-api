@@ -2,19 +2,24 @@ package service
 
 import (
 	"checkout-api/internal/controllers/dtos"
-	"encoding/json"
 	"math"
-	"net/http"
 	"time"
 )
 
-type Service struct{}
+type PaymentService struct{}
 
-func New() *Service { return &Service{} }
+func NewPaymentService() *PaymentService {
+	return &PaymentService{}
+}
 
-// Retry  with backoff
-
-// BUSINESS
+func (s *PaymentService) ProcessPayment(amount int) dtos.PaymentResult {
+	var result dtos.PaymentResult
+	retryWithBackoff(3, func() (bool, error) {
+		result = mockProcessPayment(amount)
+		return result.Success, nil
+	})
+	return result
+}
 
 func retryWithBackoff(maxRetries int, fn func() (bool, error)) bool {
 	baseDelay := 100 * time.Millisecond
@@ -25,8 +30,7 @@ func retryWithBackoff(maxRetries int, fn func() (bool, error)) bool {
 		if err == nil && ok {
 			return true
 		}
-
-		if attempt < maxRetries {
+		if attempt < maxRetries-1 {
 			delay := time.Duration(math.Pow(2, float64(attempt))) * baseDelay
 			if delay > maxDelay {
 				delay = maxDelay
@@ -37,22 +41,9 @@ func retryWithBackoff(maxRetries int, fn func() (bool, error)) bool {
 	return false
 }
 
-// BUSINESS
-
 func mockProcessPayment(amount int) dtos.PaymentResult {
 	if amount > 0 && amount < 1000000 {
-		return dtos.PaymentResult{
-			Success: true,
-		}
+		return dtos.PaymentResult{Success: true}
 	}
-	return dtos.PaymentResult{
-		Success: false,
-		Error:   "Payment declined",
-	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	return dtos.PaymentResult{Success: false, Error: "Payment declined"}
 }

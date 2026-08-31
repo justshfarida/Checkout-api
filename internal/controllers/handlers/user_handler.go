@@ -3,12 +3,11 @@ package handlers
 import (
 	"checkout-api/internal/controllers/dtos"
 	"checkout-api/internal/models"
+	"checkout-api/internal/validation"
 	"context"
 	"encoding/json"
 	"net/http"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 type UserService interface {
@@ -16,12 +15,23 @@ type UserService interface {
 	Login(ctx context.Context, username, password string) (*models.User, error)
 }
 
-type UserHandler struct {
-	service UserService
+type RefreshTokenSaver interface {
+	SaveRefreshToken(ctx context.Context, token string, userID int, expiresAt time.Time) error
 }
 
-func NewUserHandler(service UserService) *UserHandler {
-	return &UserHandler{service: service}
+type AuthManager interface {
+	GenerateAccessToken(userID int) (string, error)
+	GenerateRefreshToken() (string, error)
+}
+
+type UserHandler struct {
+	service        UserService
+	refreshService RefreshTokenSaver
+	authManager    AuthManager
+}
+
+func NewUserHandler(service UserService, refreshService RefreshTokenSaver, authManager AuthManager) *UserHandler {
+	return &UserHandler{service: service, refreshService: refreshService, authManager: authManager}
 }
 
 func (handler *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
@@ -29,63 +39,69 @@ func (handler *UserHandler) SignUp(w http.ResponseWriter, r *http.Request) {
 
 	var req dtos.SignUpRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		WriteValidationError(w, "invalid request body")
 		return
 	}
 
-	if req.Username == "" || req.Password == "" {
-		http.Error(w, "username and password are required", http.StatusBadRequest)
+	req.Username = validation.SanitizeUsername(req.Username)
+
+	result := validation.NewResult()
+	result.Required("username", req.Username)
+	result.MinLen("username", req.Username, 3)
+	result.MaxLen("username", req.Username, 32)
+	result.Required("password", req.Password)
+	result.MinLen("password", req.Password, 8)
+	if !result.Valid() {
+		WriteShapeErrors(w, result)
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	user, err := handler.service.SignUp(ctx, req.Username, req.Password)
 	if err != nil {
-		http.Error(w, "failed to process password", http.StatusInternalServerError)
-		return
-	}
-
-	user, err := handler.service.SignUp(ctx, req.Username, string(hashedPassword))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		WriteServiceError(w, err)
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, user)
 }
 
-func (handler *Handler) Login(w http.ResponseWriter, r *http.Request) {
+func (handler *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var req dtos.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.Username == "" || req.Password == "" {
-		http.Error(w, "username and password are required", http.StatusBadRequest)
+		WriteValidationError(w, "invalid request body")
 		return
 	}
 
-	user, err := handler.store.Login(ctx, req.Username, req.Password)
+	req.Username = validation.SanitizeUsername(req.Username)
+
+	result := validation.NewResult()
+	result.Required("username", req.Username)
+	result.Required("password", req.Password)
+	if !result.Valid() {
+		WriteShapeErrors(w, result)
+		return
+	}
+
+	user, err := handler.service.Login(ctx, req.Username, req.Password)
 	if err != nil {
-		http.Error(w, "invalid username or password", http.StatusUnauthorized)
+		WriteServiceError(w, err)
 		return
 	}
 
 	accessToken, err := handler.authManager.GenerateAccessToken(user.ID)
-
 	if err != nil {
-		http.Error(w, "failed to create session", http.StatusInternalServerError)
+		WriteServiceError(w, err)
 		return
 	}
-
 	refreshToken, err := handler.authManager.GenerateRefreshToken()
 	if err != nil {
-		http.Error(w, "failed to create session", http.StatusInternalServerError)
+		WriteServiceError(w, err)
 		return
 	}
-	if err := handler.store.SaveRefreshToken(ctx, refreshToken, user.ID, time.Now().Add(30*24*time.Hour)); err != nil {
-		http.Error(w, "failed to create session", http.StatusInternalServerError)
+	if err := handler.refreshService.SaveRefreshToken(ctx, refreshToken, user.ID, time.Now().Add(30*24*time.Hour)); err != nil {
+		WriteServiceError(w, err)
 		return
 	}
 

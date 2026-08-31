@@ -39,7 +39,7 @@ func (r *RefreshTokenRepo) GetRefreshToken(ctx context.Context, token string) (*
 	).Scan(&rt.UserID, &rt.ExpiresAt, &rt.Revoked, &rt.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("refresh token not found")
+			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("unable to fetch refresh token: %w", err)
 	}

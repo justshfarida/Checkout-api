@@ -8,7 +8,6 @@ type CreateUserCartRequest struct {
 	} `json:"items"`
 }
 
-/*
 type CreateOrderRequest struct {
 	UserID int `json:"user_id"`
 	Items  []struct {
@@ -16,9 +15,8 @@ type CreateOrderRequest struct {
 		Quantity int `json:"quantity"`
 	} `json:"items"`
 }
-*/
 
-type updateQuantityRequest struct {
+type UpdateQuantityRequest struct {
 	UserID   int `json:"user_id"`
 	Quantity int `json:"quantity"`
 }

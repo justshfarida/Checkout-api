@@ -55,3 +55,8 @@ type RefreshToken struct {
 	Revoked   bool      `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+type ItemFilter struct {
+	Category string
+	SortBy   string
+}

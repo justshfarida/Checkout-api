@@ -2,185 +2,148 @@ package handlers
 
 import (
 	"checkout-api/internal/auth"
-	"checkout-api/internal/controllers"
 	"checkout-api/internal/controllers/dtos"
 	"checkout-api/internal/models"
+	"checkout-api/internal/service"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 )
 
 type CartService interface {
-	CreateUserCartAndAddItems(ctx context.Context, cart *models.Cart) error
+	CreateUserCartAndAddItems(ctx context.Context, userID int, items []service.CartItemInput) (*models.Cart, error)
 	GetUserCart(ctx context.Context, userID int) (*models.Cart, error)
 	DeleteUserCart(ctx context.Context, userID int) error
-	UpdateCartItem(ctx context.Context, userID, itemID, quantity int) (bool, error)
-	RemoveCartItem(ctx context.Context, userID, itemID int) (bool, error)
+	UpdateCartItem(ctx context.Context, userID, itemID, quantity int) (*models.Cart, error)
+	RemoveCartItem(ctx context.Context, userID, itemID int) (*models.Cart, error)
 }
 
 type CartHandler struct {
-	service CartService
+	cartService CartService
 }
 
-func NewCartHandler(service CartService) *CartHandler {
-	return &CartHandler{service: service}
+func NewCartHandler(cartService CartService) *CartHandler {
+	return &CartHandler{cartService: cartService}
 }
 
 func (handler *CartHandler) CreateUserCartAndAddItems(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		WriteMethodNotAllowed(w)
 		return
 	}
 	ctx := r.Context()
 
 	userID, ok := auth.UserIDFromContext(ctx)
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		WriteUnauthorized(w, "unauthorized")
 		return
 	}
 
 	var req dtos.CreateUserCartRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		WriteValidationError(w, "invalid request body")
 		return
 	}
-
 	if len(req.Items) == 0 {
-		http.Error(w, "can't create empty cart", http.StatusBadRequest)
+		WriteValidationError(w, "can't create empty cart")
 		return
 	}
 
-	orderItems := make([]models.LineItem, 0, len(req.Items))
+	items := make([]service.CartItemInput, 0, len(req.Items))
 	for _, item := range req.Items {
-		storeItem, err := handler.service.GetItem(ctx, item.ItemID)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("item %d not found", item.ItemID), http.StatusBadRequest)
-			return
-		}
-		orderItems = append(orderItems, models.LineItem{
-			ItemID:   item.ItemID,
-			Quantity: item.Quantity,
-			Price:    storeItem.Price,
-		})
+		items = append(items, service.CartItemInput{ItemID: item.ItemID, Quantity: item.Quantity})
 	}
 
-	userCart := &models.Cart{
-		ID:     fmt.Sprintf("cart_%d", userID),
-		UserID: userID, // use the authenticated user, not the request body — closes the earlier-flagged trust gap too
-		Items:  orderItems,
-	}
-
-	if err := handler.service.CreateUserCartAndAddItems(ctx, userCart); err != nil {
-		http.Error(w, "failed to create cart", http.StatusInternalServerError)
+	cart, err := handler.cartService.CreateUserCartAndAddItems(ctx, userID, items)
+	if err != nil {
+		WriteServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, userCart)
+	writeJSON(w, http.StatusCreated, cart)
 }
 
 func (handler *CartHandler) GetUserCart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		WriteMethodNotAllowed(w)
 		return
 	}
 
 	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		WriteUnauthorized(w, "unauthorized")
 		return
 	}
 
-	cart, err := handler.service.GetUserCart(r.Context(), userID)
+	cart, err := handler.cartService.GetUserCart(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "failed to fetch cart", http.StatusInternalServerError)
+		WriteServiceError(w, err)
 		return
 	}
 	if cart == nil {
-		cart = &models.Cart{ID: "", UserID: userID, Items: []models.LineItem{}}
+		cart = &models.Cart{UserID: userID, Items: []models.LineItem{}}
 	}
 	writeJSON(w, http.StatusOK, cart)
 }
 
-func (handler *CartHandler) UpdateItemQuantity(writer http.ResponseWriter, request *http.Request) {
-	idStr := request.PathValue("id")
-	id, err := strconv.Atoi(idStr)
+func (handler *CartHandler) UpdateItemQuantity(w http.ResponseWriter, r *http.Request) {
+	itemID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
-		http.Error(writer, http.StatusText(400), http.StatusBadRequest)
+		WriteValidationError(w, "invalid item id")
 		return
 	}
 
-	userID, ok := auth.UserIDFromContext(request.Context())
+	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
-		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		WriteUnauthorized(w, "unauthorized")
 		return
 	}
 
-	// BUSINESS
-
-	var req controllers.updateQuantityRequest
-	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
-		http.Error(writer, "invalid request body", http.StatusBadRequest)
+	var req dtos.UpdateQuantityRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteValidationError(w, "invalid request body")
 		return
 	}
-
 	if req.Quantity <= 0 {
-		http.Error(writer, "quantity must be greater than 0", http.StatusBadRequest)
-		return
-	}
-	//
-	ctx := request.Context()
-	found, err := handler.service.UpdateCartItem(ctx, userID, id, req.Quantity)
-	if err != nil {
-		http.Error(writer, "failed to update cart item", http.StatusInternalServerError)
-		return
-	}
-	if !found {
-		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		WriteValidationError(w, "quantity must be greater than 0")
 		return
 	}
 
-	cart, err := handler.service.GetUserCart(ctx, userID)
+	cart, err := handler.cartService.UpdateCartItem(r.Context(), userID, itemID, req.Quantity)
 	if err != nil {
-		http.Error(writer, "failed to fetch updated cart", http.StatusInternalServerError)
+		WriteServiceError(w, err)
 		return
 	}
-	writeJSON(writer, http.StatusOK, cart)
+	writeJSON(w, http.StatusOK, cart)
 }
 
-func (handler *CartHandler) DeleteItem(writer http.ResponseWriter, request *http.Request) {
-	idStr := request.PathValue("id")
-	id, err := strconv.Atoi(idStr)
+func (handler *CartHandler) DeleteItem(w http.ResponseWriter, r *http.Request) {
+	itemID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
-		http.Error(writer, http.StatusText(400), http.StatusBadRequest)
+		WriteValidationError(w, "invalid item id")
 		return
 	}
 
-	userID, ok := auth.UserIDFromContext(request.Context())
+	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
-		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		WriteUnauthorized(w, "unauthorized")
 		return
 	}
 
-	ctx := request.Context()
-	found, err := handler.service.RemoveCartItem(ctx, userID, id)
+	cart, err := handler.cartService.RemoveCartItem(r.Context(), userID, itemID)
 	if err != nil {
-		http.Error(writer, "failed to remove cart item", http.StatusInternalServerError)
-		return
-	}
-	if !found {
-		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-		return
-	}
-
-	cart, err := handler.service.GetUserCart(ctx, userID)
-	if err != nil {
-		http.Error(writer, "failed to fetch cart", http.StatusInternalServerError)
+		WriteServiceError(w, err)
 		return
 	}
 	if cart == nil || len(cart.Items) == 0 {
-		writer.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	writeJSON(writer, http.StatusOK, cart)
+	writeJSON(w, http.StatusOK, cart)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
 }
