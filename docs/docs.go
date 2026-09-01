@@ -747,8 +747,8 @@ var SwaggerInfo = &swag.Spec{
 	Description:      "Xsolla School checkout backend — items, cart, orders, auth.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
-	LeftDelim:        "{{",
-	RightDelim:       "}}",
+	//LeftDelim:        "{{",
+	//RightDelim:       "}}",
 }
 
 func init() {
