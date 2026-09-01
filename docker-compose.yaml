@@ -3,16 +3,16 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER:-appuser}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
-      POSTGRES_DB: ${DB_NAME:-appdb}
+      POSTGRES_USER: ${DB_USER:-lala}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-lala2005}
+      POSTGRES_DB: ${DB_NAME:-checkoutdb}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/checkoutdb_dump.sql:/docker-entrypoint-initdb.d/checkoutdb_dump.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-appuser}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-lala}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -26,9 +26,9 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 5432
-      DB_USER: ${DB_USER:-appuser}
-      DB_PASSWORD: ${DB_PASSWORD:-secret}
-      DB_NAME: ${DB_NAME:-appdb}
+      DB_USER: ${DB_USER:-lala}
+      DB_PASSWORD: ${DB_PASSWORD:-lala2005}
+      DB_NAME: ${DB_NAME:-checkoutdb}
     ports:
       - "8080:8080"
 
