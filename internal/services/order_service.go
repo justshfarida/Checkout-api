@@ -23,14 +23,17 @@ type CreateOrderResult struct {
 type OrderService struct {
 	repo     repositories.OrderRepository
 	itemRepo repositories.ItemRepository
+	cartRepo repositories.CartRepository
 }
 
 func NewOrderService(
 	repo repositories.OrderRepository,
+	cartRepo repositories.CartRepository,
 	itemRepo repositories.ItemRepository,
 ) *OrderService {
 	return &OrderService{
 		repo:     repo,
+		cartRepo: cartRepo,
 		itemRepo: itemRepo,
 	}
 }
@@ -159,14 +162,33 @@ func (s *OrderService) GetOrdersByUserIDCursor(
 func (s *OrderService) CreateOrder(
 	ctx context.Context,
 	userID int,
-	items []models.LineItem,
-	total int,
 ) (*CreateOrderResult, error) {
+	cartItems, err := s.cartRepo.GetUserCartOffset(
+		ctx,
+		userID,
+		1000,
+		0,
+	)
+	if err != nil {
+		return nil, err
+	}
 
-	for _, line := range items {
+	if len(cartItems) == 0 {
+		return nil, ErrEmptyCart
+	}
+
+	lineItems := make(
+		[]models.LineItem,
+		0,
+		len(cartItems),
+	)
+
+	total := 0
+
+	for _, cartItem := range cartItems {
 		item, err := s.itemRepo.GetItem(
 			ctx,
-			line.ItemID,
+			cartItem.ID,
 		)
 		if err != nil {
 			return nil, err
@@ -178,16 +200,27 @@ func (s *OrderService) CreateOrder(
 
 		if err := validation.ValidateStock(
 			item.Stock,
-			line.Quantity,
+			cartItem.Quantity,
 		); err != nil {
 			return nil, err
 		}
+
+		lineItems = append(
+			lineItems,
+			models.LineItem{
+				ItemID:   item.ID,
+				Quantity: cartItem.Quantity,
+				Price:    item.Price,
+			},
+		)
+
+		total += item.Price * cartItem.Quantity
 	}
 
 	order, err := s.repo.CreateOrder(
 		ctx,
 		userID,
-		items,
+		lineItems,
 		total,
 		"pending",
 	)

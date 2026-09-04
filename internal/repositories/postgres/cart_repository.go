@@ -221,3 +221,35 @@ func (r *PostgresRepository) RemoveCartItem(
 
 	return nil
 }
+func (r *PostgresRepository) GetUserCartTotal(
+	ctx context.Context,
+	userID int,
+) (int, error) {
+	var total int
+
+	//coalesce returns first non null character. useful for empty cart. sum returns null when cart is empty.
+	err := r.pool.QueryRow(
+		ctx,
+		
+		`
+		SELECT COALESCE( 
+			SUM(i.price * c.quantity),
+			0
+		)
+		FROM carts c
+		INNER JOIN items i
+			ON i.id = c.item_id
+		WHERE c.user_id = $1
+		`,
+		userID,
+	).Scan(&total)
+
+	if err != nil {
+		return 0, fmt.Errorf(
+			"failed to calculate cart total: %w",
+			err,
+		)
+	}
+
+	return total, nil
+}

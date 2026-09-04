@@ -307,10 +307,10 @@ func (h *Handler) GetUserCart(
 		w,
 		http.StatusOK,
 		CartOffsetResponse{
-			UserID: userID,
 			Items:  items,
 			Limit:  result.Limit,
 			Offset: result.Offset,
+			Total:  result.Total,
 		},
 	)
 }
@@ -410,10 +410,10 @@ func (h *Handler) GetUserCartCursor(
 		w,
 		http.StatusOK,
 		CartCursorResponse{
-			UserID:     userID,
 			Items:      items,
 			NextCursor: result.NextCursor,
 			HasMore:    result.HasMore,
+			Total:      result.Total,
 		},
 	)
 }

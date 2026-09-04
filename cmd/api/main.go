@@ -96,6 +96,7 @@ func main() {
 		services.NewOrderService(
 			repo,
 			repo,
+			repo, 
 		)
 
 	// --------------------

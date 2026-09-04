@@ -72,60 +72,10 @@ func (h *Handler) CreateOrder(
 		)
 	}
 
-	var req CreateOrderRequest
-
-	dec :=
-		json.NewDecoder(
-			r.Body,
-		)
-
-	dec.DisallowUnknownFields()
-
-	if err := dec.Decode(&req); err != nil {
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"INVALID_JSON",
-			"Invalid request body",
-		)
-		return
-	}
-
-	if err := h.validate.Struct(req); err != nil {
-		writeError(
-			w,
-			http.StatusUnprocessableEntity,
-			"VALIDATION_FAILED",
-			"Request validation failed",
-			validationDetails(err)...,
-		)
-		return
-	}
-
-	items :=
-		make(
-			[]models.LineItem,
-			0,
-			len(req.LineItems),
-		)
-
-	for _, i := range req.LineItems {
-		items = append(
-			items,
-			models.LineItem{
-				ItemID:   i.ItemID,
-				Quantity: i.Quantity,
-				Price:    i.Price,
-			},
-		)
-	}
-
 	result, err :=
 		h.orderService.CreateOrder(
 			r.Context(),
 			userID,
-			items,
-			req.Total,
 		)
 
 	if err != nil {

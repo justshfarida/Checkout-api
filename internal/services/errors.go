@@ -8,4 +8,5 @@ var (
 	ErrInvalidCursor      = errors.New("invalid cursor")
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrOrderNotFound      = errors.New("order not found")
+	ErrEmptyCart          = errors.New("The cart is empty")
 )

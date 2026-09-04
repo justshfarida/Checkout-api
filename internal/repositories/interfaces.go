@@ -33,11 +33,6 @@ type CartRepository interface {
 		itemID int,
 		quantity int,
 	) error
-
-	// GetUserCart(
-	// 	ctx context.Context,
-	// 	userID int,
-	// ) ([]models.CartItem, error)
 	GetUserCartOffset(
 		ctx context.Context,
 		userID int,
@@ -62,6 +57,10 @@ type CartRepository interface {
 		userID int,
 		itemID int,
 	) error
+	GetUserCartTotal(
+		ctx context.Context,
+		userID int,
+	) (int, error)
 }
 
 type OrderRepository interface {

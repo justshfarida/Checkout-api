@@ -33,17 +33,17 @@ type OrderResponse struct {
 }
 
 type CartOffsetResponse struct {
-	UserID int                `json:"user_id"`
 	Items  []CartItemResponse `json:"items"`
 	Limit  int                `json:"limit"`
 	Offset int                `json:"offset"`
+	Total  int                `json:"total"`
 }
 
 type CartCursorResponse struct {
-	UserID     int                `json:"user_id"`
 	Items      []CartItemResponse `json:"items"`
 	NextCursor string             `json:"next_cursor,omitempty"`
 	HasMore    bool               `json:"has_more"`
+	Total      int                `json:"total"`
 }
 
 type CartItemResponse struct {

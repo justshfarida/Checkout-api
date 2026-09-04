@@ -28,12 +28,14 @@ type CartOffsetResult struct {
 	Items  []models.CartItem `json:"items"`
 	Limit  int               `json:"limit"`
 	Offset int               `json:"offset"`
+	Total  int               `json:"total"`
 }
 
 type CartCursorResult struct {
 	Items      []models.CartItem `json:"items"`
 	NextCursor string            `json:"next_cursor,omitempty"`
 	HasMore    bool              `json:"has_more"`
+	Total      int               `json:"total"`
 }
 
 func (s *CartService) GetUserCartOffset(
@@ -58,13 +60,21 @@ func (s *CartService) GetUserCartOffset(
 		return CartOffsetResult{}, err
 	}
 
+	total, err := s.repo.GetUserCartTotal(
+		ctx,
+		userID,
+	)
+	if err != nil {
+		return CartOffsetResult{}, err
+	}
+
 	return CartOffsetResult{
 		Items:  items,
 		Limit:  limit,
 		Offset: offset,
+		Total:  total,
 	}, nil
 }
-
 func (s *CartService) GetUserCartCursor(
 	ctx context.Context,
 	userID int,
@@ -78,8 +88,6 @@ func (s *CartService) GetUserCartCursor(
 		return CartCursorResult{}, err
 	}
 
-	// Ask for one extra row so we know
-	// whether another page exists.
 	items, err := s.repo.GetUserCartCursor(
 		ctx,
 		userID,
@@ -99,17 +107,24 @@ func (s *CartService) GetUserCartCursor(
 	var nextCursor string
 
 	if hasMore && len(items) > 0 {
-		lastItem := items[len(items)-1]
-
 		nextCursor = EncodeCursor(
-			lastItem.ID,
+			items[len(items)-1].ID,
 		)
+	}
+
+	total, err := s.repo.GetUserCartTotal(
+		ctx,
+		userID,
+	)
+	if err != nil {
+		return CartCursorResult{}, err
 	}
 
 	return CartCursorResult{
 		Items:      items,
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
+		Total:      total,
 	}, nil
 }
 
