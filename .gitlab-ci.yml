@@ -1,5 +1,14 @@
 stages:
+  - format
   - test
+  - build
+
+format:
+  stage: format
+  image: golang:1.25
+
+  script:
+    - test -z "$(gofmt -l .)"
 
 unit_tests:
   stage: test
@@ -20,3 +29,10 @@ unit_tests:
     when: always
     paths:
       - coverage.out
+
+build:
+  stage: build
+  image: golang:1.25
+
+  script:
+    - go build ./...

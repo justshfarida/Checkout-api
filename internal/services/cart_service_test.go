@@ -146,6 +146,7 @@ func TestCartService_GetUserCartOffset(
 				service :=
 					NewCartService(
 						repo,
+						repo,
 						&fakeItemRepository{},
 					)
 
@@ -342,6 +343,7 @@ func TestCartService_UpsertCartItem(
 				service :=
 					NewCartService(
 						cartRepo,
+						cartRepo,
 						itemRepo,
 					)
 
@@ -438,6 +440,7 @@ func TestCartService_DeleteUserCart(
 				service :=
 					NewCartService(
 						repo,
+						repo,
 						&fakeItemRepository{},
 					)
 
@@ -511,6 +514,7 @@ func TestCartService_RemoveCartItem(
 				service :=
 					NewCartService(
 						repo,
+						repo,
 						&fakeItemRepository{},
 					)
 
@@ -554,6 +558,122 @@ func TestCartService_RemoveCartItem(
 					)
 				}
 			},
+		)
+	}
+}
+
+// TestCartService_CartWriterDependency demonstrates dependency inversion for
+// the cart database write dependency: success, error propagation, and the
+// observable write side effect (the writer is called with the expected data).
+func TestCartService_CartWriterDependency(t *testing.T) {
+	const (
+		userID   = 7
+		itemID   = 11
+		quantity = 2
+	)
+
+	tests := []struct {
+		name     string
+		writeErr error
+		wantErr  error
+	}{
+		{
+			name: "success: cart write succeeds",
+		},
+		{
+			name:     "error: database write failure is returned",
+			writeErr: errFakeDependency,
+			wantErr:  errFakeDependency,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &fakeCartRepository{}
+			writer := &fakeCartWriter{upsertErr: tt.writeErr}
+			itemRepo := &fakeItemRepository{
+				items: map[int]*models.Item{
+					itemID: {
+						ID:    itemID,
+						Stock: 10,
+					},
+				},
+			}
+
+			service := NewCartService(reader, writer, itemRepo)
+
+			err := service.UpsertCartItem(
+				context.Background(),
+				userID,
+				itemID,
+				quantity,
+			)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("UpsertCartItem() error = %v, want %v", err, tt.wantErr)
+			}
+
+			// Side effect / interaction: the service attempted the DB write.
+			if !writer.upsertCalled {
+				t.Fatal("expected CartWriter.UpsertCartItem to be called")
+			}
+			if writer.userID != userID || writer.itemID != itemID || writer.quantity != quantity {
+				t.Fatalf(
+					"writer args = (userID=%d, itemID=%d, quantity=%d), want (%d, %d, %d)",
+					writer.userID,
+					writer.itemID,
+					writer.quantity,
+					userID,
+					itemID,
+					quantity,
+				)
+			}
+		})
+	}
+}
+
+func TestCartService_Upsert_DoesNotWrite_WhenStockIsInsufficient(t *testing.T) {
+	ctx := context.Background()
+
+	itemRepo := &fakeItemRepository{
+		items: map[int]*models.Item{
+			1: {
+				ID:    1,
+				Name:  "Keyboard",
+				Price: 5000,
+				Stock: 2,
+			},
+		},
+	}
+	writer := &fakeCartWriter{}
+	cartRepo := &fakeCartRepository{}
+
+	service := NewCartService(
+		cartRepo,
+		writer,
+		itemRepo,
+	)
+
+	err := service.UpsertCartItem(
+		ctx,
+		7, // userID
+		1, // itemID
+		5, // quantity — but only 2 are available
+	)
+
+	// We expect stock validation to fail.
+	if !errors.Is(err, validation.ErrInsufficientStock) {
+		t.Fatalf(
+			"expected ErrInsufficientStock, got %v",
+			err,
+		)
+	}
+
+	// Most important assertion:
+	// invalid operation must NOT reach the DB writer.
+	if writer.upsertCalled {
+		t.Fatal(
+			"expected UpsertCartItem NOT to be called when stock is insufficient",
 		)
 	}
 }

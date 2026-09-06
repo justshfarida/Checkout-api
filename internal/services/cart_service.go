@@ -8,18 +8,26 @@ import (
 	"checkout-api/internal/validation"
 )
 
+type CartWriter interface {
+	UpsertCartItem(ctx context.Context, userID int, itemID int, quantity int) error
+	DeleteUserCart(ctx context.Context, userID int) error
+	RemoveCartItem(ctx context.Context, userID int, itemID int) error
+}
+
 type CartService struct {
 	repo     repositories.CartRepository
+	writer   CartWriter
 	itemRepo repositories.ItemRepository
 }
 
 func NewCartService(
 	repo repositories.CartRepository,
+	writer CartWriter,
 	itemRepo repositories.ItemRepository,
-
 ) *CartService {
 	return &CartService{
 		repo:     repo,
+		writer:   writer,
 		itemRepo: itemRepo,
 	}
 }
@@ -153,7 +161,7 @@ func (s *CartService) UpsertCartItem(
 		return err
 	}
 
-	return s.repo.UpsertCartItem(
+	return s.writer.UpsertCartItem(
 		ctx,
 		userID,
 		itemID,
@@ -165,7 +173,7 @@ func (s *CartService) DeleteUserCart(
 	ctx context.Context,
 	userID int,
 ) error {
-	return s.repo.DeleteUserCart(
+	return s.writer.DeleteUserCart(
 		ctx,
 		userID,
 	)
@@ -176,7 +184,7 @@ func (s *CartService) RemoveCartItem(
 	userID int,
 	itemID int,
 ) error {
-	return s.repo.RemoveCartItem(
+	return s.writer.RemoveCartItem(
 		ctx,
 		userID,
 		itemID,

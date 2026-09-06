@@ -334,3 +334,56 @@ func (f *fakeOrderRepository) GetOrdersByUserIDCursor(
 }
 
 var _ repositories.OrderRepository = (*fakeOrderRepository)(nil)
+
+// ======================================================
+// FAKE CART WRITER (narrow DB write dependency)
+// ======================================================
+
+type fakeCartWriter struct {
+	upsertErr error
+	deleteErr error
+	removeErr error
+
+	upsertCalled bool
+	deleteCalled bool
+	removeCalled bool
+
+	userID   int
+	itemID   int
+	quantity int
+}
+
+func (f *fakeCartWriter) UpsertCartItem(
+	ctx context.Context,
+	userID int,
+	itemID int,
+	quantity int,
+) error {
+	f.upsertCalled = true
+	f.userID = userID
+	f.itemID = itemID
+	f.quantity = quantity
+	return f.upsertErr
+}
+
+func (f *fakeCartWriter) DeleteUserCart(
+	ctx context.Context,
+	userID int,
+) error {
+	f.deleteCalled = true
+	f.userID = userID
+	return f.deleteErr
+}
+
+func (f *fakeCartWriter) RemoveCartItem(
+	ctx context.Context,
+	userID int,
+	itemID int,
+) error {
+	f.removeCalled = true
+	f.userID = userID
+	f.itemID = itemID
+	return f.removeErr
+}
+
+var _ CartWriter = (*fakeCartWriter)(nil)

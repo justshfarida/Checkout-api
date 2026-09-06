@@ -90,6 +90,7 @@ func main() {
 		services.NewCartService(
 			repo,
 			repo,
+			repo,
 		)
 	paymentProcessor :=
 		services.MockPaymentProcessor{}
