@@ -3,7 +3,7 @@ stages:
 
 unit_tests:
   stage: test
-  image: golang:1.25-alpine
+  image: golang:1.25
 
   script:
     - go test -race ./...
