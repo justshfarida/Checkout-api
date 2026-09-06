@@ -230,7 +230,7 @@ func (r *PostgresRepository) GetUserCartTotal(
 	//coalesce returns first non null character. useful for empty cart. sum returns null when cart is empty.
 	err := r.pool.QueryRow(
 		ctx,
-		
+
 		`
 		SELECT COALESCE( 
 			SUM(i.price * c.quantity),
