@@ -131,13 +131,41 @@ var _ repositories.ItemRepository = (*fakeItemRepository)(nil)
 // ======================================================
 
 type fakeCartRepository struct {
-	items []models.CartItem
+	// GetUserCartOffset
+	items  []models.CartItem
+	getErr error
 
-	getErr    error
-	deleteErr error
+	// GetUserCartCursor
+	cursorItems []models.CartItem
+	cursorErr   error
 
+	// GetUserCartTotal
+	total    int
+	totalErr error
+
+	// DeleteUserCart
+	deleteErr     error
 	deleteCalled  bool
 	deletedUserID int
+
+	// UpsertCartItem
+	upsertErr      error
+	upsertCalled   bool
+	upsertUserID   int
+	upsertItemID   int
+	upsertQuantity int
+
+	// RemoveCartItem
+	removeErr    error
+	removeCalled bool
+	removeUserID int
+	removeItemID int
+
+	// Captured pagination args
+	offsetLimit  int
+	offsetValue  int
+	cursorLastID int
+	cursorLimit  int
 }
 
 func (f *fakeCartRepository) GetUserCartOffset(
@@ -146,6 +174,9 @@ func (f *fakeCartRepository) GetUserCartOffset(
 	limit int,
 	offset int,
 ) ([]models.CartItem, error) {
+	f.offsetLimit = limit
+	f.offsetValue = offset
+
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -162,14 +193,18 @@ func (f *fakeCartRepository) DeleteUserCart(
 
 	return f.deleteErr
 }
-
 func (f *fakeCartRepository) UpsertCartItem(
 	ctx context.Context,
 	userID int,
 	itemID int,
 	quantity int,
 ) error {
-	return nil
+	f.upsertCalled = true
+	f.upsertUserID = userID
+	f.upsertItemID = itemID
+	f.upsertQuantity = quantity
+
+	return f.upsertErr
 }
 
 func (f *fakeCartRepository) GetUserCartCursor(
@@ -178,7 +213,14 @@ func (f *fakeCartRepository) GetUserCartCursor(
 	lastID int,
 	limit int,
 ) ([]models.CartItem, error) {
-	return nil, nil
+	f.cursorLastID = lastID
+	f.cursorLimit = limit
+
+	if f.cursorErr != nil {
+		return nil, f.cursorErr
+	}
+
+	return f.cursorItems, nil
 }
 
 func (f *fakeCartRepository) RemoveCartItem(
@@ -186,14 +228,21 @@ func (f *fakeCartRepository) RemoveCartItem(
 	userID int,
 	itemID int,
 ) error {
-	return nil
-}
+	f.removeCalled = true
+	f.removeUserID = userID
+	f.removeItemID = itemID
 
+	return f.removeErr
+}
 func (f *fakeCartRepository) GetUserCartTotal(
 	ctx context.Context,
 	userID int,
 ) (int, error) {
-	return 0, nil
+	if f.totalErr != nil {
+		return 0, f.totalErr
+	}
+
+	return f.total, nil
 }
 
 var _ repositories.CartRepository = (*fakeCartRepository)(nil)
