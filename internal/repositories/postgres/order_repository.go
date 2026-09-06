@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"checkout-api/internal/models"
+	"checkout-api/internal/validation"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -81,7 +83,7 @@ func (r *PostgresRepository) CreateOrder(
 	}
 
 	var orderID int
-
+	var createdAt time.Time
 	err = tx.QueryRow(
 		ctx,
 		`
@@ -91,12 +93,12 @@ func (r *PostgresRepository) CreateOrder(
 			status
 		)
 		VALUES ($1, $2, $3)
-		RETURNING id
+		RETURNING id, created_at
 		`,
 		userID,
 		total,
 		status,
-	).Scan(&orderID)
+	).Scan(&orderID, &createdAt)
 
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -159,11 +161,12 @@ func (r *PostgresRepository) CreateOrder(
 	}
 
 	return &models.Order{
-		ID:     orderID,
-		UserID: userID,
-		Items:  items,
-		Total:  total,
-		Status: status,
+		ID:        orderID,
+		UserID:    userID,
+		Items:     items,
+		Total:     total,
+		Status:    status,
+		CreatedAt: createdAt,
 	}, nil
 }
 
@@ -339,6 +342,54 @@ func (r *PostgresRepository) GetOrdersByUserIDCursor(
 	defer rows.Close()
 
 	return scanOrders(rows)
+}
+func (r *PostgresRepository) MarkOrderPaid(
+	ctx context.Context,
+	orderID int,
+	items []models.LineItem,
+) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback(ctx)
+
+	for _, item := range items {
+		result, err := tx.Exec(
+			ctx,
+			`
+			UPDATE items
+			SET stock = stock - $1
+			WHERE id = $2
+			  AND stock >= $1
+			`,
+			item.Quantity,
+			item.ItemID,
+		)
+		if err != nil {
+			return err
+		}
+
+		if result.RowsAffected() == 0 {
+			return validation.ErrInsufficientStock
+		}
+	}
+
+	_, err = tx.Exec(
+		ctx,
+		`
+		UPDATE orders
+		SET status = 'paid'
+		WHERE id = $1
+		`,
+		orderID,
+	)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 func scanOrders(
 	rows pgx.Rows,

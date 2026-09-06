@@ -77,11 +77,6 @@ type OrderRepository interface {
 		orderID int,
 		status string,
 	) error
-
-	// GetOrdersByUserID(
-	// 	ctx context.Context,
-	// 	userID int,
-	// ) ([]models.UserOrder, error)
 	GetOrdersByUserIDOffset(
 		ctx context.Context,
 		userID int,
@@ -95,6 +90,11 @@ type OrderRepository interface {
 		lastID int,
 		limit int,
 	) ([]models.UserOrder, error)
+	MarkOrderPaid(
+		ctx context.Context,
+		orderID int,
+		items []models.LineItem,
+	) error
 }
 
 type UserRepository interface {

@@ -230,21 +230,29 @@ func (s *OrderService) CreateOrder(
 
 	payment := mockProcessPayment(total)
 
-	status := "paid"
 	if !payment.Success {
-		status = "failed"
+		if err := s.repo.UpdateOrderStatus(ctx, order.ID, "failed"); err != nil {
+			return nil, err
+		}
+		order.Status = "failed"
+		return &CreateOrderResult{
+			Order:   order,
+			Payment: payment,
+		}, nil
 	}
 
-	if err := s.repo.UpdateOrderStatus(
+	if err := s.repo.MarkOrderPaid(
 		ctx,
 		order.ID,
-		status,
+		lineItems,
 	); err != nil {
 		return nil, err
 	}
 
-	order.Status = status
-
+	order.Status = "paid"
+	if err := s.cartRepo.DeleteUserCart(ctx, userID); err != nil {
+		return nil, err
+	}
 	return &CreateOrderResult{
 		Order:   order,
 		Payment: payment,

@@ -1,4 +1,4 @@
-name: farida-checkout-api
+name: farida-checkout-api 
 
 services:
   app:
