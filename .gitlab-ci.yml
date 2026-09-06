@@ -1,0 +1,22 @@
+stages:
+  - test
+
+unit_tests:
+  stage: test
+  image: golang:1.25-alpine
+
+  script:
+    - go test -race ./...
+    - go test -coverprofile=coverage.out ./internal/services
+    - go tool cover -func=coverage.out
+    - |
+      COVERAGE=$(go tool cover -func=coverage.out | awk '/total:/ {print $3}' | tr -d '%')
+      echo "Business logic coverage: ${COVERAGE}%"
+      awk "BEGIN { if ($COVERAGE < 60) exit 1 }"
+
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+
+  artifacts:
+    when: always
+    paths:
+      - coverage.out
