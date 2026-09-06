@@ -132,25 +132,6 @@ func (r *PostgresRepository) CreateOrder(
 				err,
 			)
 		}
-
-		_, err = tx.Exec(
-			ctx,
-			`
-			UPDATE items
-			SET stock = stock - $1
-			WHERE id = $2
-			`,
-			lineItem.Quantity,
-			lineItem.ItemID,
-		)
-
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to decrement stock for item %d: %w",
-				lineItem.ItemID,
-				err,
-			)
-		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

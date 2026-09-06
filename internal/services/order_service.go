@@ -2,8 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
@@ -24,17 +22,20 @@ type OrderService struct {
 	repo     repositories.OrderRepository
 	itemRepo repositories.ItemRepository
 	cartRepo repositories.CartRepository
+	payment  PaymentProcessor
 }
 
 func NewOrderService(
 	repo repositories.OrderRepository,
 	cartRepo repositories.CartRepository,
 	itemRepo repositories.ItemRepository,
+	payment PaymentProcessor,
 ) *OrderService {
 	return &OrderService{
 		repo:     repo,
 		cartRepo: cartRepo,
 		itemRepo: itemRepo,
+		payment:  payment,
 	}
 }
 
@@ -50,26 +51,6 @@ type OrderCursorResult struct {
 	HasMore    bool               `json:"has_more"`
 }
 
-func mockProcessPayment(
-	amount int,
-) PaymentResult {
-	amount /= 100
-
-	if amount > 0 && amount < 40 {
-		return PaymentResult{
-			Success: true,
-			TransactionID: fmt.Sprintf(
-				"txn_%d",
-				time.Now().UnixNano(),
-			),
-		}
-	}
-
-	return PaymentResult{
-		Success: false,
-		Error:   "Payment declined",
-	}
-}
 func (s *OrderService) GetOrdersByUserIDOffset(
 	ctx context.Context,
 	userID int,
@@ -228,7 +209,10 @@ func (s *OrderService) CreateOrder(
 		return nil, err
 	}
 
-	payment := mockProcessPayment(total)
+	payment, err := s.payment.ProcessPayment(total)
+	if err != nil {
+		return nil, err
+	}
 
 	if !payment.Success {
 		if err := s.repo.UpdateOrderStatus(ctx, order.ID, "failed"); err != nil {

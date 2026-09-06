@@ -91,12 +91,14 @@ func main() {
 			repo,
 			repo,
 		)
-
+	paymentProcessor :=
+		services.MockPaymentProcessor{}
 	orderService :=
 		services.NewOrderService(
 			repo,
 			repo,
-			repo, 
+			repo,
+			paymentProcessor,
 		)
 
 	// --------------------
