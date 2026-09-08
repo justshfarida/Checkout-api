@@ -8,9 +8,8 @@ import (
 
 	"checkout-api/internal/models"
 
-	"github.com/jackc/pgx/v5"
 	"checkout-api/internal/repositories"
-
+	"github.com/jackc/pgx/v5"
 )
 
 func (r *PostgresRepository) FindUserByEmail(
