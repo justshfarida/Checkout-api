@@ -1,21 +1,12 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"strconv"
-	"time"
 
+	"checkout-api/internal/services"
 	"checkout-api/internal/validation"
-
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // LoginUser godoc
@@ -50,13 +41,10 @@ func (h *Handler) LoginUser(
 		return
 	}
 
-	// SANITIZE
-	req.Email =
-		validation.SanitizeEmail(
-			req.Email,
-		)
+	req.Email = validation.SanitizeEmail(
+		req.Email,
+	)
 
-	// SHAPE VALIDATION
 	if err := h.validate.Struct(req); err != nil {
 		writeError(
 			w,
@@ -68,14 +56,17 @@ func (h *Handler) LoginUser(
 		return
 	}
 
-	user, err :=
-		h.authService.FindUserByEmail(
-			r.Context(),
-			req.Email,
-		)
+	user, err := h.authService.Authenticate(
+		r.Context(),
+		req.Email,
+		[]byte(req.Password),
+	)
 
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(
+			err,
+			services.ErrInvalidCredentials,
+		) {
 			writeError(
 				w,
 				http.StatusUnauthorized,
@@ -85,97 +76,28 @@ func (h *Handler) LoginUser(
 			return
 		}
 
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, err)
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword(
-		user.Hash,
-		[]byte(req.Password),
-	); err != nil {
-		writeError(
-			w,
-			http.StatusUnauthorized,
-			"INVALID_CREDENTIALS",
-			"Email or password is incorrect",
-		)
-		return
-	}
-
-	accessExpiresAt :=
-		time.Now().Add(
-			15 * time.Minute,
-		)
-
-	token :=
-		jwt.NewWithClaims(
-			jwt.SigningMethodHS256,
-			jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(
-					accessExpiresAt,
-				),
-				Subject: strconv.Itoa(
-					user.ID,
-				),
-				IssuedAt: jwt.NewNumericDate(
-					time.Now(),
-				),
-			},
-		)
-
-	signedJWT, err :=
-		token.SignedString(
-			h.jwtSecret,
-		)
+	accessToken, err := h.tokenService.CreateAccessToken(
+		user.ID,
+	)
 
 	if err != nil {
-		handleError(
-			w,
-			fmt.Errorf(
-				"failed to sign access token: %w",
-				err,
-			),
-		)
+		handleError(w, err)
 		return
 	}
 
-	refreshToken, err :=
-		generateRefreshToken()
+	refreshToken,
+		refreshExpiresAt,
+		err := h.tokenService.CreateRefreshToken(
+		r.Context(),
+		user.ID,
+	)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
-		return
-	}
-
-	refreshTokenHash :=
-		hashRefreshToken(
-			refreshToken,
-		)
-
-	refreshTokenExpiresAt :=
-		time.Now().Add(
-			30 * 24 * time.Hour,
-		)
-
-	err =
-		h.authService.SaveRefreshToken(
-			r.Context(),
-			user.ID,
-			refreshTokenHash,
-			refreshTokenExpiresAt,
-		)
-
-	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, err)
 		return
 	}
 
@@ -188,7 +110,7 @@ func (h *Handler) LoginUser(
 			HttpOnly: true,
 			Secure:   false,
 			SameSite: http.SameSiteLaxMode,
-			Expires:  refreshTokenExpiresAt,
+			Expires:  refreshExpiresAt,
 			MaxAge:   30 * 24 * 60 * 60,
 		},
 	)
@@ -197,7 +119,7 @@ func (h *Handler) LoginUser(
 		w,
 		http.StatusOK,
 		AuthResponse{
-			JWT: signedJWT,
+			JWT: accessToken,
 		},
 	)
 }
@@ -233,13 +155,10 @@ func (h *Handler) CreateUser(
 		return
 	}
 
-	// SANITIZE
-	req.Email =
-		validation.SanitizeEmail(
-			req.Email,
-		)
+	req.Email = validation.SanitizeEmail(
+		req.Email,
+	)
 
-	// SHAPE VALIDATION
 	if err := h.validate.Struct(req); err != nil {
 		writeError(
 			w,
@@ -251,35 +170,14 @@ func (h *Handler) CreateUser(
 		return
 	}
 
-	hash, err :=
-		bcrypt.GenerateFromPassword(
-			[]byte(req.Password),
-			bcrypt.DefaultCost,
-		)
+	err := h.authService.SaveUser(
+		r.Context(),
+		req.Email,
+		[]byte(req.Password),
+	)
 
 	if err != nil {
-		handleError(
-			w,
-			fmt.Errorf(
-				"failed to hash password: %w",
-				err,
-			),
-		)
-		return
-	}
-
-	err =
-		h.authService.SaveUser(
-			r.Context(),
-			req.Email,
-			hash,
-		)
-
-	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, err)
 		return
 	}
 
@@ -301,10 +199,9 @@ func (h *Handler) IssueJWT(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	cookie, err :=
-		r.Cookie(
-			"refresh_token",
-		)
+	cookie, err := r.Cookie(
+		"refresh_token",
+	)
 
 	if err != nil {
 		if errors.Is(
@@ -329,8 +226,7 @@ func (h *Handler) IssueJWT(
 		return
 	}
 
-	oldRefreshToken :=
-		cookie.Value
+	oldRefreshToken := cookie.Value
 
 	if oldRefreshToken == "" {
 		writeError(
@@ -342,39 +238,13 @@ func (h *Handler) IssueJWT(
 		return
 	}
 
-	newRefreshToken, err :=
-		generateRefreshToken()
-
-	if err != nil {
-		handleError(
-			w,
-			err,
-		)
-		return
-	}
-
-	oldTokenHash :=
-		hashRefreshToken(
-			oldRefreshToken,
-		)
-
-	newTokenHash :=
-		hashRefreshToken(
-			newRefreshToken,
-		)
-
-	newRefreshExpiresAt :=
-		time.Now().Add(
-			30 * 24 * time.Hour,
-		)
-
-	userID, err :=
-		h.authService.RotateRefreshToken(
-			r.Context(),
-			oldTokenHash,
-			newTokenHash,
-			newRefreshExpiresAt,
-		)
+	userID,
+		newRefreshToken,
+		newRefreshExpiresAt,
+		err := h.tokenService.RotateRefreshToken(
+		r.Context(),
+		oldRefreshToken,
+	)
 
 	if err != nil {
 		writeError(
@@ -386,40 +256,12 @@ func (h *Handler) IssueJWT(
 		return
 	}
 
-	accessExpiresAt :=
-		time.Now().Add(
-			5 * time.Minute,
-		)
-
-	token :=
-		jwt.NewWithClaims(
-			jwt.SigningMethodHS256,
-			jwt.RegisteredClaims{
-				Subject: strconv.Itoa(
-					userID,
-				),
-				IssuedAt: jwt.NewNumericDate(
-					time.Now(),
-				),
-				ExpiresAt: jwt.NewNumericDate(
-					accessExpiresAt,
-				),
-			},
-		)
-
-	signedJWT, err :=
-		token.SignedString(
-			h.jwtSecret,
-		)
+	accessToken, err := h.tokenService.CreateAccessToken(
+		userID,
+	)
 
 	if err != nil {
-		handleError(
-			w,
-			fmt.Errorf(
-				"failed to sign access token: %w",
-				err,
-			),
-		)
+		handleError(w, err)
 		return
 	}
 
@@ -441,48 +283,7 @@ func (h *Handler) IssueJWT(
 		w,
 		http.StatusOK,
 		AuthResponse{
-			JWT: signedJWT,
+			JWT: accessToken,
 		},
 	)
-}
-
-func generateRefreshToken() (
-	string,
-	error,
-) {
-	randomBytes :=
-		make(
-			[]byte,
-			32,
-		)
-
-	if _, err :=
-		rand.Read(
-			randomBytes,
-		); err != nil {
-
-		return "",
-			fmt.Errorf(
-				"failed to generate refresh token: %w",
-				err,
-			)
-	}
-
-	return base64.
-			RawURLEncoding.
-			EncodeToString(
-				randomBytes,
-			),
-		nil
-}
-
-func hashRefreshToken(
-	token string,
-) []byte {
-	hash :=
-		sha256.Sum256(
-			[]byte(token),
-		)
-
-	return hash[:]
 }

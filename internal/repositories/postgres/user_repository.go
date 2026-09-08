@@ -9,6 +9,8 @@ import (
 	"checkout-api/internal/models"
 
 	"github.com/jackc/pgx/v5"
+	"checkout-api/internal/repositories"
+
 )
 
 func (r *PostgresRepository) FindUserByEmail(
@@ -33,6 +35,9 @@ func (r *PostgresRepository) FindUserByEmail(
 		&user.Email,
 		&user.Hash,
 	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.User{}, repositories.ErrUserNotFound
+	}
 
 	if err != nil {
 		return models.User{}, err

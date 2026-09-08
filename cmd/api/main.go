@@ -92,6 +92,10 @@ func main() {
 			repo,
 			repo,
 		)
+	tokenService := services.NewTokenService(
+		repo,
+		jwtSecretBytes,
+	)
 	paymentProcessor :=
 		services.MockPaymentProcessor{}
 	orderService :=
@@ -112,6 +116,7 @@ func main() {
 			itemService,
 			cartService,
 			orderService,
+			tokenService,
 			jwtSecretBytes,
 		)
 

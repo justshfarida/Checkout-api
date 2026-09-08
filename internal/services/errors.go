@@ -9,4 +9,5 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrOrderNotFound      = errors.New("order not found")
 	ErrEmptyCart          = errors.New("The cart is empty")
+	ErrPasswordHashing    = errors.New("failed to hash password")
 )

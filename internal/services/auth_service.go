@@ -2,10 +2,12 @@ package services
 
 import (
 	"context"
-	"time"
+	"errors"
 
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthService struct {
@@ -20,21 +22,20 @@ func NewAuthService(
 	}
 }
 
-func (s *AuthService) FindUserByEmail(
-	ctx context.Context,
-	email string,
-) (models.User, error) {
-	return s.repo.FindUserByEmail(
-		ctx,
-		email,
-	)
-}
-
 func (s *AuthService) SaveUser(
 	ctx context.Context,
 	email string,
-	hash []byte,
+	password []byte,
 ) error {
+	hash, err := bcrypt.GenerateFromPassword(
+		password,
+		bcrypt.DefaultCost,
+	)
+
+	if err != nil {
+		return ErrPasswordHashing
+	}
+
 	return s.repo.SaveUser(
 		ctx,
 		email,
@@ -42,30 +43,33 @@ func (s *AuthService) SaveUser(
 	)
 }
 
-func (s *AuthService) SaveRefreshToken(
+func (s *AuthService) Authenticate(
 	ctx context.Context,
-	userID int,
-	tokenHash []byte,
-	expiresAt time.Time,
-) error {
-	return s.repo.SaveRefreshToken(
+	email string,
+	password []byte,
+) (models.User, error) {
+	user, err := s.repo.FindUserByEmail(
 		ctx,
-		userID,
-		tokenHash,
-		expiresAt,
+		email,
 	)
-}
 
-func (s *AuthService) RotateRefreshToken(
-	ctx context.Context,
-	oldTokenHash []byte,
-	newTokenHash []byte,
-	newExpiresAt time.Time,
-) (int, error) {
-	return s.repo.RotateRefreshToken(
-		ctx,
-		oldTokenHash,
-		newTokenHash,
-		newExpiresAt,
-	)
+	if err != nil {
+		if errors.Is(
+			err,
+			repositories.ErrUserNotFound,
+		) {
+			return models.User{}, ErrInvalidCredentials
+		}
+
+		return models.User{}, err
+	}
+
+	if err := bcrypt.CompareHashAndPassword(
+		user.Hash,
+		password,
+	); err != nil {
+		return models.User{}, ErrInvalidCredentials
+	}
+
+	return user, nil
 }

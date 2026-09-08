@@ -17,10 +17,42 @@ import (
 )
 
 type AuthService interface {
-	FindUserByEmail(ctx context.Context, email string) (models.User, error)
-	SaveUser(ctx context.Context, email string, hash []byte) error
-	SaveRefreshToken(ctx context.Context, userID int, tokenHash []byte, expiresAt time.Time) error
-	RotateRefreshToken(ctx context.Context, oldTokenHash []byte, newTokenHash []byte, newExpiresAt time.Time) (int, error)
+	SaveUser(
+		ctx context.Context,
+		email string,
+		password []byte,
+	) error
+
+	Authenticate(
+		ctx context.Context,
+		email string,
+		password []byte,
+	) (models.User, error)
+}
+
+type TokenService interface {
+	CreateAccessToken(
+		userID int,
+	) (string, error)
+
+	CreateRefreshToken(
+		ctx context.Context,
+		userID int,
+	) (
+		string,
+		time.Time,
+		error,
+	)
+
+	RotateRefreshToken(
+		ctx context.Context,
+		oldRefreshToken string,
+	) (
+		int,
+		string,
+		time.Time,
+		error,
+	)
 }
 
 type ItemService interface {
@@ -47,6 +79,7 @@ type Handler struct {
 	itemService  ItemService
 	cartService  CartService
 	orderService OrderService
+	tokenService TokenService
 
 	jwtSecret        []byte
 	validate         *validator.Validate
@@ -64,13 +97,17 @@ func NewHandler(
 	itemService ItemService,
 	cartService CartService,
 	orderService OrderService,
+	tokenService TokenService,
+
 	jwtSecret []byte,
 ) *Handler {
 	return &Handler{
-		authService:      authService,
-		itemService:      itemService,
-		cartService:      cartService,
-		orderService:     orderService,
+		authService:  authService,
+		itemService:  itemService,
+		cartService:  cartService,
+		orderService: orderService,
+		tokenService: tokenService,
+
 		jwtSecret:        jwtSecret,
 		validate:         validator.New(),
 		idempotencyCache: make(map[string]*IdempotencyRecord),

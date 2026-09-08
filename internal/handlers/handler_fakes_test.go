@@ -17,15 +17,20 @@ func testAccessToken(userID int) string {
 	token := jwt.NewWithClaims(
 		jwt.SigningMethodHS256,
 		jwt.RegisteredClaims{
-			Subject:   strconv.Itoa(userID),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			Subject: strconv.Itoa(userID),
+			ExpiresAt: jwt.NewNumericDate(
+				time.Now().Add(time.Hour),
+			),
 		},
 	)
 
-	signed, err := token.SignedString(testJWTSecret)
+	signed, err := token.SignedString(
+		testJWTSecret,
+	)
 	if err != nil {
 		panic(err)
 	}
+
 	return signed
 }
 
@@ -34,65 +39,170 @@ func newTestHandler(
 	item ItemService,
 	cart CartService,
 	order OrderService,
+	token TokenService,
 ) *Handler {
-	return NewHandler(auth, item, cart, order, testJWTSecret)
+	return NewHandler(
+		auth,
+		item,
+		cart,
+		order,
+		token,
+		testJWTSecret,
+	)
 }
 
+// -------------------------------------------------------
+// AUTH SERVICE FAKE
+// -------------------------------------------------------
+
 type fakeAuthService struct {
-	user    models.User
-	findErr error
+	authenticateUser models.User
+	authenticateErr  error
 
 	saveUserErr error
 
-	saveRefreshErr error
+	authenticateCalled bool
+	saveUserCalled     bool
 
-	rotateUserID int
-	rotateErr    error
+	authenticateEmail    string
+	authenticatePassword []byte
 
-	findCalled        bool
-	saveUserCalled    bool
-	saveRefreshCalled bool
-	rotateCalled      bool
-
-	foundEmail string
-	savedEmail string
-	savedHash  []byte
+	savedEmail    string
+	savedPassword []byte
 }
 
-func (f *fakeAuthService) FindUserByEmail(ctx context.Context, email string) (models.User, error) {
-	f.findCalled = true
-	f.foundEmail = email
-	return f.user, f.findErr
+func (f *fakeAuthService) Authenticate(
+	ctx context.Context,
+	email string,
+	password []byte,
+) (models.User, error) {
+	f.authenticateCalled = true
+	f.authenticateEmail = email
+	f.authenticatePassword = append(
+		[]byte(nil),
+		password...,
+	)
+
+	if f.authenticateErr != nil {
+		return models.User{},
+			f.authenticateErr
+	}
+
+	return f.authenticateUser,
+		nil
 }
 
-func (f *fakeAuthService) SaveUser(ctx context.Context, email string, hash []byte) error {
+func (f *fakeAuthService) SaveUser(
+	ctx context.Context,
+	email string,
+	password []byte,
+) error {
 	f.saveUserCalled = true
 	f.savedEmail = email
-	f.savedHash = append([]byte(nil), hash...)
+	f.savedPassword = append(
+		[]byte(nil),
+		password...,
+	)
+
 	return f.saveUserErr
 }
 
-func (f *fakeAuthService) SaveRefreshToken(
+var _ AuthService = (*fakeAuthService)(nil)
+
+// -------------------------------------------------------
+// TOKEN SERVICE FAKE
+// -------------------------------------------------------
+
+type fakeTokenService struct {
+	accessToken    string
+	accessTokenErr error
+
+	refreshToken     string
+	refreshExpiresAt time.Time
+	refreshTokenErr  error
+
+	rotateUserID    int
+	rotatedToken    string
+	rotateExpiresAt time.Time
+	rotateErr       error
+
+	createAccessCalled  bool
+	createRefreshCalled bool
+	rotateCalled        bool
+
+	accessUserID  int
+	refreshUserID int
+
+	oldRefreshToken string
+}
+
+func (f *fakeTokenService) CreateAccessToken(
+	userID int,
+) (string, error) {
+	f.createAccessCalled = true
+	f.accessUserID = userID
+
+	if f.accessTokenErr != nil {
+		return "",
+			f.accessTokenErr
+	}
+
+	return f.accessToken,
+		nil
+}
+
+func (f *fakeTokenService) CreateRefreshToken(
 	ctx context.Context,
 	userID int,
-	tokenHash []byte,
-	expiresAt time.Time,
-) error {
-	f.saveRefreshCalled = true
-	return f.saveRefreshErr
+) (
+	string,
+	time.Time,
+	error,
+) {
+	f.createRefreshCalled = true
+	f.refreshUserID = userID
+
+	if f.refreshTokenErr != nil {
+		return "",
+			time.Time{},
+			f.refreshTokenErr
+	}
+
+	return f.refreshToken,
+		f.refreshExpiresAt,
+		nil
 }
 
-func (f *fakeAuthService) RotateRefreshToken(
+func (f *fakeTokenService) RotateRefreshToken(
 	ctx context.Context,
-	oldTokenHash []byte,
-	newTokenHash []byte,
-	newExpiresAt time.Time,
-) (int, error) {
+	oldRefreshToken string,
+) (
+	int,
+	string,
+	time.Time,
+	error,
+) {
 	f.rotateCalled = true
-	return f.rotateUserID, f.rotateErr
+	f.oldRefreshToken = oldRefreshToken
+
+	if f.rotateErr != nil {
+		return 0,
+			"",
+			time.Time{},
+			f.rotateErr
+	}
+
+	return f.rotateUserID,
+		f.rotatedToken,
+		f.rotateExpiresAt,
+		nil
 }
 
-var _ AuthService = (*fakeAuthService)(nil)
+var _ TokenService = (*fakeTokenService)(nil)
+
+// -------------------------------------------------------
+// ITEM SERVICE FAKE
+// -------------------------------------------------------
 
 type fakeItemService struct {
 	item       *models.Item
@@ -109,30 +219,49 @@ type fakeItemService struct {
 	cursorCalled bool
 }
 
-func (f *fakeItemService) GetItem(ctx context.Context, id int) (*models.Item, error) {
+func (f *fakeItemService) GetItem(
+	ctx context.Context,
+	id int,
+) (*models.Item, error) {
 	f.getCalled = true
-	return f.item, f.getItemErr
+
+	return f.item,
+		f.getItemErr
 }
 
 func (f *fakeItemService) GetItemsOffset(
 	ctx context.Context,
 	limit int,
 	offset int,
-) (services.ItemOffsetResult, error) {
+) (
+	services.ItemOffsetResult,
+	error,
+) {
 	f.offsetCalled = true
-	return f.offsetResult, f.offsetErr
+
+	return f.offsetResult,
+		f.offsetErr
 }
 
 func (f *fakeItemService) GetItemsCursor(
 	ctx context.Context,
 	rawCursor string,
 	limit int,
-) (services.ItemCursorResult, error) {
+) (
+	services.ItemCursorResult,
+	error,
+) {
 	f.cursorCalled = true
-	return f.cursorResult, f.cursorErr
+
+	return f.cursorResult,
+		f.cursorErr
 }
 
 var _ ItemService = (*fakeItemService)(nil)
+
+// -------------------------------------------------------
+// CART SERVICE FAKE
+// -------------------------------------------------------
 
 type fakeCartService struct {
 	offsetResult services.CartOffsetResult
@@ -159,10 +288,15 @@ func (f *fakeCartService) GetUserCartOffset(
 	userID int,
 	limit int,
 	offset int,
-) (services.CartOffsetResult, error) {
+) (
+	services.CartOffsetResult,
+	error,
+) {
 	f.offsetCalled = true
 	f.userID = userID
-	return f.offsetResult, f.offsetErr
+
+	return f.offsetResult,
+		f.offsetErr
 }
 
 func (f *fakeCartService) GetUserCartCursor(
@@ -170,10 +304,15 @@ func (f *fakeCartService) GetUserCartCursor(
 	userID int,
 	rawCursor string,
 	limit int,
-) (services.CartCursorResult, error) {
+) (
+	services.CartCursorResult,
+	error,
+) {
 	f.cursorCalled = true
 	f.userID = userID
-	return f.cursorResult, f.cursorErr
+
+	return f.cursorResult,
+		f.cursorErr
 }
 
 func (f *fakeCartService) UpsertCartItem(
@@ -186,6 +325,7 @@ func (f *fakeCartService) UpsertCartItem(
 	f.userID = userID
 	f.itemID = itemID
 	f.quantity = quantity
+
 	return f.upsertErr
 }
 
@@ -197,10 +337,15 @@ func (f *fakeCartService) RemoveCartItem(
 	f.removeCalled = true
 	f.userID = userID
 	f.itemID = itemID
+
 	return f.removeErr
 }
 
 var _ CartService = (*fakeCartService)(nil)
+
+// -------------------------------------------------------
+// ORDER SERVICE FAKE
+// -------------------------------------------------------
 
 type fakeOrderService struct {
 	createResult *services.CreateOrderResult
@@ -221,10 +366,15 @@ type fakeOrderService struct {
 func (f *fakeOrderService) CreateOrder(
 	ctx context.Context,
 	userID int,
-) (*services.CreateOrderResult, error) {
+) (
+	*services.CreateOrderResult,
+	error,
+) {
 	f.createCalls++
 	f.userID = userID
-	return f.createResult, f.createErr
+
+	return f.createResult,
+		f.createErr
 }
 
 func (f *fakeOrderService) GetOrdersByUserIDOffset(
@@ -232,10 +382,15 @@ func (f *fakeOrderService) GetOrdersByUserIDOffset(
 	userID int,
 	limit int,
 	offset int,
-) (services.OrderOffsetResult, error) {
+) (
+	services.OrderOffsetResult,
+	error,
+) {
 	f.offsetCalled = true
 	f.userID = userID
-	return f.offsetResult, f.offsetErr
+
+	return f.offsetResult,
+		f.offsetErr
 }
 
 func (f *fakeOrderService) GetOrdersByUserIDCursor(
@@ -243,10 +398,15 @@ func (f *fakeOrderService) GetOrdersByUserIDCursor(
 	userID int,
 	rawCursor string,
 	limit int,
-) (services.OrderCursorResult, error) {
+) (
+	services.OrderCursorResult,
+	error,
+) {
 	f.cursorCalled = true
 	f.userID = userID
-	return f.cursorResult, f.cursorErr
+
+	return f.cursorResult,
+		f.cursorErr
 }
 
 var _ OrderService = (*fakeOrderService)(nil)
