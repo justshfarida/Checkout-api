@@ -2,6 +2,7 @@ stages:
   - format
   - test
   - build
+  - docker
 
 format:
   stage: format
@@ -36,3 +37,19 @@ build:
 
   script:
     - go build ./...
+
+docker:
+  stage: docker
+  image: docker:24
+
+  services:
+    - docker:24-dind
+
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+
+  script:
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" .
+    - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE:latest"
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE:latest"

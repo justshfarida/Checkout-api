@@ -414,7 +414,7 @@ func TestHandler_IssueJWT(t *testing.T) {
 				rotateUserID: 1,
 				rotatedToken: "new-refresh-token",
 				rotateExpiresAt: time.Now().Add(
-					30 * 24 * time.Hour,
+					7 * 24 * time.Hour,
 				),
 				accessTokenErr: internalErr,
 			},
