@@ -1,0 +1,55 @@
+stages:
+  - format
+  - test
+  - build
+  - docker
+
+format:
+  stage: format
+  image: golang:1.25
+
+  script:
+    - test -z "$(gofmt -l .)"
+
+unit_tests:
+  stage: test
+  image: golang:1.25
+
+  script:
+    - go test -race ./...
+    - go test -coverprofile=coverage.out ./internal/services
+    - go tool cover -func=coverage.out
+    - |
+      COVERAGE=$(go tool cover -func=coverage.out | awk '/total:/ {print $3}' | tr -d '%')
+      echo "Business logic coverage: ${COVERAGE}%"
+      awk "BEGIN { if ($COVERAGE < 60) exit 1 }"
+
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+
+  artifacts:
+    when: always
+    paths:
+      - coverage.out
+
+build:
+  stage: build
+  image: golang:1.25
+
+  script:
+    - go build ./...
+
+docker:
+  stage: docker
+  image: docker:24
+
+  services:
+    - docker:24-dind
+
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+
+  script:
+    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" .
+    - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE:latest"
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE:latest"

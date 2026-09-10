@@ -1,0 +1,38 @@
+name: farida-checkout-api 
+
+services:
+  app:
+    build: .
+    container_name: farida-checkout-app
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: checkout
+    depends_on:
+        db:
+          condition: service_healthy
+  db:
+    image: postgres:18-alpine
+    container_name: farida-checkout-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: checkout
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./db/checkout_dump.sql:/docker-entrypoint-initdb.d/checkout_dump.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d checkout" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+volumes:
+  postgres_data:
