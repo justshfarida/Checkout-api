@@ -28,19 +28,19 @@ spec:
             - name: POSTGRES_DB
               valueFrom:
                 configMapKeyRef:
-                  name: postgres-config
+                  name: checkout-config
                   key: POSTGRES_DB
 
             - name: POSTGRES_USER
               valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
+                configMapKeyRef:
+                  name: checkout-config
                   key: POSTGRES_USER
 
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-secret
+                  name: checkout-secret
                   key: POSTGRES_PASSWORD
 
           volumeMounts:
