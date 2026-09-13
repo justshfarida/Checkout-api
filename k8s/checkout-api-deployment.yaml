@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: checkout-api
-          image: farida-checkout-api-app:v2
+          image: farida-checkout-api-app:latest
           # Do not download/pull this image from a registry. Only use a copy that already exists on the Kubernetes node.
           imagePullPolicy: Never
 
@@ -52,3 +52,12 @@ spec:
               configMapKeyRef:
                 name: checkout-config
                 key: FRONTEND_URL
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+
+          livenessProbe:
+              httpGet:
+                path: /health
+                port: 8080
