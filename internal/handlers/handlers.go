@@ -117,6 +117,8 @@ func NewHandler(
 func (h *Handler) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("GET /health", h.Health)
+
 	mux.Handle(
 		"GET /swagger/",
 		httpSwagger.WrapHandler,
@@ -161,6 +163,12 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /token", h.IssueJWT)
 
 	return mux
+}
+
+func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status": "ok",
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
