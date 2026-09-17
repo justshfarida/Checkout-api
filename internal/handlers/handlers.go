@@ -73,14 +73,12 @@ type OrderService interface {
 	GetOrdersByUserIDOffset(ctx context.Context, userID int, limit int, offset int) (services.OrderOffsetResult, error)
 	GetOrdersByUserIDCursor(ctx context.Context, userID int, rawCursor string, limit int) (services.OrderCursorResult, error)
 }
-
 type Handler struct {
-	authService  AuthService
-	itemService  ItemService
-	cartService  CartService
-	orderService OrderService
-	tokenService TokenService
-
+	authService      AuthService
+	itemService      ItemService
+	cartService      CartService
+	orderService     OrderService
+	tokenService     TokenService
 	jwtSecret        []byte
 	validate         *validator.Validate
 	idempotencyCache map[string]*IdempotencyRecord
@@ -98,16 +96,14 @@ func NewHandler(
 	cartService CartService,
 	orderService OrderService,
 	tokenService TokenService,
-
 	jwtSecret []byte,
 ) *Handler {
 	return &Handler{
-		authService:  authService,
-		itemService:  itemService,
-		cartService:  cartService,
-		orderService: orderService,
-		tokenService: tokenService,
-
+		authService:      authService,
+		itemService:      itemService,
+		cartService:      cartService,
+		orderService:     orderService,
+		tokenService:     tokenService,
 		jwtSecret:        jwtSecret,
 		validate:         validator.New(),
 		idempotencyCache: make(map[string]*IdempotencyRecord),
@@ -161,7 +157,6 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /signup", h.CreateUser)
 	mux.HandleFunc("POST /login", h.LoginUser)
 	mux.HandleFunc("GET /token", h.IssueJWT)
-
 	return mux
 }
 

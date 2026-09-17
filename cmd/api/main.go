@@ -34,6 +34,9 @@ func main() {
 	databaseURL := mustGetEnv("DATABASE_URL")
 	jwtSecret := mustGetEnv("JWT_SECRET")
 	frontendURL := mustGetEnv("FRONTEND_URL")
+	xsollaProjectID := mustGetEnv("XSOLLA_PROJECT_ID")
+	xsollaMerchantID := mustGetEnv("XSOLLA_MERCHANT_ID")
+	xsollaAPIKey := mustGetEnv("XSOLLA_API_KEY")
 
 	jwtSecretBytes := []byte(jwtSecret)
 
@@ -98,12 +101,19 @@ func main() {
 	)
 	paymentProcessor :=
 		services.MockPaymentProcessor{}
+		xsollaService := services.NewXsollaService(
+		xsollaProjectID,
+		xsollaMerchantID,
+		xsollaAPIKey,
+	)
 	orderService :=
 		services.NewOrderService(
 			repo,
 			repo,
 			repo,
 			paymentProcessor,
+			xsollaService,
+
 		)
 
 	// --------------------

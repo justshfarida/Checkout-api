@@ -44,6 +44,7 @@ func (h *Handler) CreateOrder(
 		return
 	}
 
+	// Return cached response for the same request.
 	if record, exists :=
 		h.idempotencyCache[idempotencyKey]; exists {
 
@@ -86,18 +87,15 @@ func (h *Handler) CreateOrder(
 		return
 	}
 
-	statusCode :=
-		http.StatusCreated
-
-	if !result.Payment.Success {
-		statusCode =
-			http.StatusPaymentRequired
-	}
+	// Order is created as "pending".
+	// Actual payment confirmation happens later via Xsolla webhook.
+	statusCode := http.StatusCreated
 
 	responseData :=
 		map[string]any{
-			"order":   result.Order,
-			"payment": result.Payment,
+			"order":           result.Order,
+			"xsolla_order_id": result.XsollaOrderID,
+			"payment_url":     result.PaymentURL,
 		}
 
 	responseBody, err :=
@@ -138,7 +136,6 @@ func (h *Handler) CreateOrder(
 			responseBody,
 		)
 }
-
 func (h *Handler) GetUserOrders(
 	w http.ResponseWriter,
 	r *http.Request,
