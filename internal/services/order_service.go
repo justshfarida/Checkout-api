@@ -15,7 +15,7 @@ type PaymentResult struct {
 }
 
 type CreateOrderResult struct {
-	Order         *models.Order
+	Order *models.Order
 	// Payment       PaymentResult
 	XsollaOrderID int    `json:"xsolla_order_id"`
 	PaymentURL    string `json:"payment_url"`
@@ -24,15 +24,15 @@ type XsollaPaymentService interface {
 	CreatePayment(
 		ctx context.Context,
 		userID int,
-		orderID int, 
+		orderID int,
 		items []XsollaItem,
 	) (*XsollaPaymentResponse, error)
 }
 type OrderService struct {
-	repo     repositories.OrderRepository
-	itemRepo repositories.ItemRepository
-	cartRepo repositories.CartRepository
-	payment  PaymentProcessor
+	repo          repositories.OrderRepository
+	itemRepo      repositories.ItemRepository
+	cartRepo      repositories.CartRepository
+	payment       PaymentProcessor
 	xsollaService XsollaPaymentService
 }
 
@@ -41,14 +41,14 @@ func NewOrderService(
 	cartRepo repositories.CartRepository,
 	itemRepo repositories.ItemRepository,
 	payment PaymentProcessor,
-	xsollaService XsollaPaymentService, 
+	xsollaService XsollaPaymentService,
 ) *OrderService {
 	return &OrderService{
-		repo:     repo,
-		cartRepo: cartRepo,
-		itemRepo: itemRepo,
-		payment:  payment,
-		xsollaService: xsollaService, 
+		repo:          repo,
+		cartRepo:      cartRepo,
+		itemRepo:      itemRepo,
+		payment:       payment,
+		xsollaService: xsollaService,
 	}
 }
 
@@ -215,7 +215,7 @@ func (s *OrderService) CreateOrder(
 		xsollaItems = append(
 			xsollaItems,
 			XsollaItem{
-				SKU:       fmt.Sprintf("item_%d", item.ID),
+				SKU:      fmt.Sprintf("item_%d", item.ID),
 				Quantity: cartItem.Quantity,
 			},
 		)
@@ -237,7 +237,7 @@ func (s *OrderService) CreateOrder(
 	payment, err := s.xsollaService.CreatePayment(
 		ctx,
 		userID,
-		order.ID, 
+		order.ID,
 		xsollaItems,
 	)
 	if err != nil {

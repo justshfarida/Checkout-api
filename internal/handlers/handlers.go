@@ -28,6 +28,10 @@ type AuthService interface {
 		email string,
 		password []byte,
 	) (models.User, error)
+	UserExists(
+	ctx context.Context,
+	id int,
+	) (bool, error)
 }
 
 type TokenService interface {
@@ -73,15 +77,21 @@ type OrderService interface {
 	GetOrdersByUserIDOffset(ctx context.Context, userID int, limit int, offset int) (services.OrderOffsetResult, error)
 	GetOrdersByUserIDCursor(ctx context.Context, userID int, rawCursor string, limit int) (services.OrderCursorResult, error)
 }
+type XsollaService interface {
+	CreatePayment(ctx context.Context, userID int, orderID int, items []services.XsollaItem) (*services.XsollaPaymentResponse, error)
+	VerifyXsollaSignature(rawBody []byte, authHeader string) bool
+}
 type Handler struct {
-	authService      AuthService
-	itemService      ItemService
-	cartService      CartService
-	orderService     OrderService
-	tokenService     TokenService
-	jwtSecret        []byte
-	validate         *validator.Validate
-	idempotencyCache map[string]*IdempotencyRecord
+	authService         AuthService
+	itemService         ItemService
+	cartService         CartService
+	orderService        OrderService
+	tokenService        TokenService
+	xsollaService       XsollaService
+	jwtSecret           []byte
+	xsollaWebhookSecret string
+	validate            *validator.Validate
+	idempotencyCache    map[string]*IdempotencyRecord
 }
 
 type IdempotencyRecord struct {
@@ -96,17 +106,22 @@ func NewHandler(
 	cartService CartService,
 	orderService OrderService,
 	tokenService TokenService,
+	xsollaService XsollaService,
 	jwtSecret []byte,
+	xsollaWebhookSecret string,
+
 ) *Handler {
 	return &Handler{
-		authService:      authService,
-		itemService:      itemService,
-		cartService:      cartService,
-		orderService:     orderService,
-		tokenService:     tokenService,
-		jwtSecret:        jwtSecret,
-		validate:         validator.New(),
-		idempotencyCache: make(map[string]*IdempotencyRecord),
+		authService:         authService,
+		itemService:         itemService,
+		cartService:         cartService,
+		orderService:        orderService,
+		tokenService:        tokenService,
+		xsollaService:       xsollaService,
+		jwtSecret:           jwtSecret,
+		validate:            validator.New(),
+		idempotencyCache:    make(map[string]*IdempotencyRecord),
+		xsollaWebhookSecret: xsollaWebhookSecret,
 	}
 }
 

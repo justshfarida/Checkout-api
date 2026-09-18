@@ -3,30 +3,37 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 type XsollaService struct {
-	projectID  string
-	merchantID string
-	apiKey     string
-	client     *http.Client
+	projectID     string
+	merchantID    string
+	apiKey        string
+	client        *http.Client
+	webhookSecret string
 }
 
 func NewXsollaService(
 	projectID string,
 	merchantID string,
 	apiKey string,
+	webhookSecret string,
 ) *XsollaService {
 	return &XsollaService{
-		projectID:  projectID,
-		merchantID: merchantID,
-		apiKey:     apiKey,
-		client:     &http.Client{},
+		projectID:     projectID,
+		merchantID:    merchantID,
+		apiKey:        apiKey,
+		webhookSecret: webhookSecret,
+		client:        &http.Client{},
 	}
 }
 
@@ -48,7 +55,6 @@ type xsollaPaymentRequest struct {
 		Items []XsollaItem `json:"items"`
 	} `json:"purchase"`
 	CustomParameters map[string]string `json:"custom_parameters"`
-
 }
 
 type XsollaItem struct {
@@ -64,7 +70,7 @@ type XsollaPaymentResponse struct {
 func (s *XsollaService) CreatePayment(
 	ctx context.Context,
 	userID int,
-	orderID int, 
+	orderID int,
 	items []XsollaItem,
 ) (*XsollaPaymentResponse, error) {
 
@@ -76,8 +82,8 @@ func (s *XsollaService) CreatePayment(
 	body.User.Country.AllowModify = false
 	body.Purchase.Items = items
 	body.CustomParameters = map[string]string{
-	"order_id": strconv.Itoa(orderID),
-}
+		"order_id": strconv.Itoa(orderID),
+	}
 
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -129,3 +135,27 @@ func (s *XsollaService) CreatePayment(
 
 	return &result, nil
 }
+func (s *XsollaService) VerifyXsollaSignature(rawBody []byte, authHeader string) bool {
+	const prefix = "Signature "
+
+	if !strings.HasPrefix(authHeader, prefix) {
+		return false
+	}
+	provided := strings.TrimSpace(
+		strings.TrimPrefix(authHeader, prefix),
+	)
+	h := sha1.New()
+	h.Write(rawBody)
+	h.Write([]byte(s.webhookSecret))
+
+	expected := hex.EncodeToString(
+		h.Sum(nil),
+	)
+
+	return subtle.ConstantTimeCompare(
+		[]byte(strings.ToLower(provided)),
+		[]byte(strings.ToLower(expected)),
+	) == 1
+}
+
+

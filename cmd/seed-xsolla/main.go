@@ -125,11 +125,11 @@ func main() {
 
 			Prices: []XsollaPrice{
 				{
-					Currency:  "USD",
+					Currency: "USD",
 
 					// DB stores cents:
 					// 2500 -> $25.00
-					Amount:    float64(item.Price) / 100,
+					Amount: float64(item.Price) / 100,
 
 					IsDefault: true,
 					IsEnabled: true,

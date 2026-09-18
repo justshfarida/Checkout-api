@@ -122,4 +122,15 @@ type UserRepository interface {
 		newTokenHash []byte,
 		newExpiresAt time.Time,
 	) (int, error)
+	FindUserByID(
+		ctx context.Context,
+		id int,
+	) (models.User, error)
+}
+type XsollaRepository interface {
+	SaveTransaction(
+		ctx context.Context,
+		transactionID int64,
+		orderID int,
+	) (bool, error)
 }

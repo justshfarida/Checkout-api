@@ -9,6 +9,7 @@ import (
 	"checkout-api/internal/models"
 
 	"checkout-api/internal/repositories"
+
 	"github.com/jackc/pgx/v5"
 )
 
@@ -214,4 +215,34 @@ func (r *PostgresRepository) RotateRefreshToken(
 	}
 
 	return userID, nil
+}
+func (r *PostgresRepository) FindUserByID(
+	ctx context.Context,
+	id int,
+) (models.User, error) {
+	var user models.User
+
+	err := r.pool.QueryRow(
+		ctx,
+		`
+		SELECT id, email, hash
+		FROM users
+		WHERE id = $1
+		`,
+		id,
+	).Scan(
+		&user.ID,
+		&user.Email,
+		&user.Hash,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return models.User{}, repositories.ErrUserNotFound
+	}
+
+	if err != nil {
+		return models.User{}, err
+	}
+
+	return user, nil
 }

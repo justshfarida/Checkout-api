@@ -37,6 +37,7 @@ func main() {
 	xsollaProjectID := mustGetEnv("XSOLLA_PROJECT_ID")
 	xsollaMerchantID := mustGetEnv("XSOLLA_MERCHANT_ID")
 	xsollaAPIKey := mustGetEnv("XSOLLA_API_KEY")
+	xsollaWebhookSecret := mustGetEnv("XSOLLA_WEBHOOK_SECRET")
 
 	jwtSecretBytes := []byte(jwtSecret)
 
@@ -101,10 +102,11 @@ func main() {
 	)
 	paymentProcessor :=
 		services.MockPaymentProcessor{}
-		xsollaService := services.NewXsollaService(
+	xsollaService := services.NewXsollaService(
 		xsollaProjectID,
 		xsollaMerchantID,
 		xsollaAPIKey,
+		xsollaWebhookSecret,
 	)
 	orderService :=
 		services.NewOrderService(
@@ -113,9 +115,7 @@ func main() {
 			repo,
 			paymentProcessor,
 			xsollaService,
-
 		)
-
 	// --------------------
 	// HANDLER
 	// --------------------
@@ -127,7 +127,9 @@ func main() {
 			cartService,
 			orderService,
 			tokenService,
+			xsollaService,
 			jwtSecretBytes,
+			xsollaWebhookSecret,
 		)
 
 	// --------------------

@@ -73,3 +73,26 @@ func (s *AuthService) Authenticate(
 
 	return user, nil
 }
+
+func (s *AuthService) UserExists(
+	ctx context.Context,
+	id int,
+) (bool, error) {
+	_, err := s.repo.FindUserByID(
+		ctx,
+		id,
+	)
+
+	if err != nil {
+		if errors.Is(
+			err,
+			repositories.ErrUserNotFound,
+		) {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return true, nil
+}
