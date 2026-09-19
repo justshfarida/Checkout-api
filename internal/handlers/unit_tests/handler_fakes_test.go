@@ -39,6 +39,7 @@ func newTestHandler(
 	item ItemService,
 	cart CartService,
 	order OrderService,
+	xsolla XsollaService,
 	token TokenService,
 ) *Handler {
 	return NewHandler(
@@ -47,6 +48,7 @@ func newTestHandler(
 		cart,
 		order,
 		token,
+		xsolla,
 		testJWTSecret,
 	)
 }

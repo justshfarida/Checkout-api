@@ -1,11 +1,11 @@
 package services
 
 import (
-	"context"
-
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
 	"checkout-api/internal/validation"
+	"context"
+	"fmt"
 )
 
 type PaymentResult struct {
@@ -15,14 +15,26 @@ type PaymentResult struct {
 }
 
 type CreateOrderResult struct {
-	Order   *models.Order
-	Payment PaymentResult
+	Order *models.Order
+	// Payment       PaymentResult
+	XsollaOrderID int    `json:"xsolla_order_id"`
+	PaymentURL    string `json:"payment_url"`
+}
+type XsollaPaymentService interface {
+	CreatePayment(
+		ctx context.Context,
+		userID int,
+		orderID int,
+		items []XsollaItem,
+	) (*XsollaPaymentResponse, error)
 }
 type OrderService struct {
-	repo     repositories.OrderRepository
-	itemRepo repositories.ItemRepository
-	cartRepo repositories.CartRepository
-	payment  PaymentProcessor
+	repo          repositories.OrderRepository
+	itemRepo      repositories.ItemRepository
+	cartRepo      repositories.CartRepository
+	payment       PaymentProcessor
+	xsollaService XsollaPaymentService
+	xsollaRep     repositories.XsollaRepository
 }
 
 func NewOrderService(
@@ -30,12 +42,16 @@ func NewOrderService(
 	cartRepo repositories.CartRepository,
 	itemRepo repositories.ItemRepository,
 	payment PaymentProcessor,
+	xsollaService XsollaPaymentService,
+	xsollaRep repositories.XsollaRepository,
 ) *OrderService {
 	return &OrderService{
-		repo:     repo,
-		cartRepo: cartRepo,
-		itemRepo: itemRepo,
-		payment:  payment,
+		repo:          repo,
+		cartRepo:      cartRepo,
+		itemRepo:      itemRepo,
+		payment:       payment,
+		xsollaService: xsollaService,
+		xsollaRep:     xsollaRep,
 	}
 }
 
@@ -163,6 +179,11 @@ func (s *OrderService) CreateOrder(
 		0,
 		len(cartItems),
 	)
+	xsollaItems := make(
+		[]XsollaItem,
+		0,
+		len(cartItems),
+	)
 
 	total := 0
 
@@ -194,6 +215,13 @@ func (s *OrderService) CreateOrder(
 				Price:    item.Price,
 			},
 		)
+		xsollaItems = append(
+			xsollaItems,
+			XsollaItem{
+				SKU:      fmt.Sprintf("item_%d", item.ID),
+				Quantity: cartItem.Quantity,
+			},
+		)
 
 		total += item.Price * cartItem.Quantity
 	}
@@ -209,37 +237,24 @@ func (s *OrderService) CreateOrder(
 		return nil, err
 	}
 
-	payment, err := s.payment.ProcessPayment(total)
+	payment, err := s.xsollaService.CreatePayment(
+		ctx,
+		userID,
+		order.ID,
+		xsollaItems,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	if !payment.Success {
-		if err := s.repo.UpdateOrderStatus(ctx, order.ID, "failed"); err != nil {
-			return nil, err
-		}
-		order.Status = "failed"
-		return &CreateOrderResult{
-			Order:   order,
-			Payment: payment,
-		}, nil
-	}
+	paymentURL :=
+		"https://sandbox-secure.xsolla.com/paystation4/?token=" +
+			payment.Token
 
-	if err := s.repo.MarkOrderPaid(
-		ctx,
-		order.ID,
-		lineItems,
-	); err != nil {
-		return nil, err
-	}
-
-	order.Status = "paid"
-	if err := s.cartRepo.DeleteUserCart(ctx, userID); err != nil {
-		return nil, err
-	}
 	return &CreateOrderResult{
-		Order:   order,
-		Payment: payment,
+		Order:         order,
+		XsollaOrderID: payment.OrderID,
+		PaymentURL:    paymentURL,
 	}, nil
 }
 func (s *OrderService) UpdateOrderStatus(
@@ -252,4 +267,33 @@ func (s *OrderService) UpdateOrderStatus(
 		orderID,
 		status,
 	)
+}
+func (s *OrderService) ProcessXsollaPayment(
+	ctx context.Context,
+	orderID int,
+	transactionID int64,
+) error {
+	items, err := s.repo.GetOrderItems(
+		ctx,
+		orderID,
+	)
+	if err != nil {
+		return err
+	}
+
+	if len(items) == 0 {
+		return ErrOrderNotFound
+	}
+
+	_, err = s.xsollaRep.ProcessXsollaPayment(
+		ctx,
+		transactionID,
+		orderID,
+		items,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

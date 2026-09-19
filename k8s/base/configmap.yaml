@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: checkout-config
+  namespace: workshop
+
+data:
+  POSTGRES_DB: "checkout"
+  POSTGRES_USER: "postgres"
+  FRONTEND_URL: "http://localhost:3000"

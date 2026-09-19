@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"checkout-api/internal/models"
+	"checkout-api/internal/repositories"
 	"checkout-api/internal/validation"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (r *PostgresRepository) CreateOrder(
@@ -156,22 +158,45 @@ func (r *PostgresRepository) UpdateOrderStatus(
 	orderID int,
 	status string,
 ) error {
-	_, err := r.pool.Exec(
-		ctx,
-		`
-		UPDATE orders
-		SET status = $1
-		WHERE id = $2
-		`,
-		status,
-		orderID,
+	var (
+		result pgconn.CommandTag
+		err    error
 	)
+
+	if status == "canceled" {
+		result, err = r.pool.Exec(
+			ctx,
+			`
+			UPDATE orders
+			SET status = $1
+			WHERE id = $2
+			  AND status = 'pending'
+			`,
+			status,
+			orderID,
+		)
+	} else {
+		result, err = r.pool.Exec(
+			ctx,
+			`
+			UPDATE orders
+			SET status = $1
+			WHERE id = $2
+			`,
+			status,
+			orderID,
+		)
+	}
 
 	if err != nil {
 		return fmt.Errorf(
 			"failed to update order status: %w",
 			err,
 		)
+	}
+
+	if result.RowsAffected() == 0 {
+		return repositories.ErrOrderNotFound
 	}
 
 	return nil
@@ -371,6 +396,62 @@ func (r *PostgresRepository) MarkOrderPaid(
 	}
 
 	return tx.Commit(ctx)
+}
+func (r *PostgresRepository) GetOrderItems(
+	ctx context.Context,
+	orderID int,
+) ([]models.LineItem, error) {
+	rows, err := r.pool.Query(
+		ctx,
+		`
+		SELECT
+			item_id,
+			quantity,
+			price
+		FROM line_items
+		WHERE order_id = $1
+		ORDER BY item_id
+		`,
+		orderID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to get order items: %w",
+			err,
+		)
+	}
+	defer rows.Close()
+
+	items := make([]models.LineItem, 0)
+
+	for rows.Next() {
+		var item models.LineItem
+
+		if err := rows.Scan(
+			&item.ItemID,
+			&item.Quantity,
+			&item.Price,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"failed to scan order item: %w",
+				err,
+			)
+		}
+
+		items = append(
+			items,
+			item,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(
+			"failed while reading order items: %w",
+			err,
+		)
+	}
+
+	return items, nil
 }
 func scanOrders(
 	rows pgx.Rows,

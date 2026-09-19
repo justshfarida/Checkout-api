@@ -192,3 +192,16 @@ func hashRefreshToken(
 
 	return hash[:]
 }
+func (s *TokenService) Logout(
+	ctx context.Context,
+	refreshToken string,
+) error {
+	hash := sha256.Sum256(
+		[]byte(refreshToken),
+	)
+
+	return s.repo.DeleteRefreshToken(
+		ctx,
+		hash[:],
+	)
+}

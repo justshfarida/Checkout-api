@@ -95,6 +95,10 @@ type OrderRepository interface {
 		orderID int,
 		items []models.LineItem,
 	) error
+	GetOrderItems(
+		ctx context.Context,
+		orderID int,
+	) ([]models.LineItem, error)
 }
 
 type UserRepository interface {
@@ -122,4 +126,21 @@ type UserRepository interface {
 		newTokenHash []byte,
 		newExpiresAt time.Time,
 	) (int, error)
+	FindUserByID(
+		ctx context.Context,
+		id int,
+	) (models.User, error)
+	DeleteRefreshToken(
+		ctx context.Context,
+		tokenHash []byte,
+	) error
+}
+type XsollaRepository interface {
+	ProcessXsollaPayment(
+		ctx context.Context,
+		transactionID int64,
+		orderID int,
+		items []models.LineItem,
+
+	) (bool, error)
 }
