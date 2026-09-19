@@ -1,13 +1,12 @@
 package postgres
 
 import (
+	"context"
+
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
 	"checkout-api/internal/validation"
-	"context"
-	"fmt"
 )
-
 
 func (r *PostgresRepository) ProcessXsollaPayment(
 	ctx context.Context,
@@ -19,11 +18,10 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 	if err != nil {
 		return false, err
 	}
-
 	defer tx.Rollback(ctx)
 
-	// 1. Try to record the Xsolla transaction.
-	tag, err := tx.Exec(
+	// 1. Idempotency
+	result, err := tx.Exec(
 		ctx,
 		`
 		INSERT INTO xsolla_transactions (
@@ -40,12 +38,41 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, err
 	}
 
-	// Already processed this Xsolla transaction.
-	if tag.RowsAffected() == 0 {
+	// Already processed.
+	if result.RowsAffected() == 0 {
 		return false, nil
 	}
 
-	// 2. Decrease stock.
+	// 2. Get and lock the order.
+	var (
+		userID int
+		status string
+	)
+
+	err = tx.QueryRow(
+		ctx,
+		`
+		SELECT
+			user_id,
+			status
+		FROM orders
+		WHERE id = $1
+		FOR UPDATE
+		`,
+		orderID,
+	).Scan(
+		&userID,
+		&status,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	if status != "pending" {
+		return false, repositories.ErrOrderNotPending
+	}
+
+	// 3. Decrease stock.
 	for _, item := range items {
 		result, err := tx.Exec(
 			ctx,
@@ -67,8 +94,8 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		}
 	}
 
-	// 3. Mark our order as paid.
-	result, err := tx.Exec(
+	// 4. Mark order as paid.
+	result, err = tx.Exec(
 		ctx,
 		`
 		UPDATE orders
@@ -83,13 +110,23 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 	}
 
 	if result.RowsAffected() == 0 {
-		return false, fmt.Errorf(
-			"order %d",
-			repositories.ErrOrderNotPending, 
-		)
+		return false, repositories.ErrOrderNotPending
 	}
 
-	// 4. Everything succeeded.
+	// 5. Clear the user's cart.
+	_, err = tx.Exec(
+		ctx,
+		`
+		DELETE FROM carts
+		WHERE user_id = $1
+		`,
+		userID,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	// 6. Commit everything.
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}
