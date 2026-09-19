@@ -86,7 +86,6 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, fmt.Errorf(
 			"order %d",
 			repositories.ErrOrderNotPending, 
-			orderID,
 		)
 	}
 
