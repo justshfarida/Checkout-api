@@ -95,6 +95,10 @@ type OrderRepository interface {
 		orderID int,
 		items []models.LineItem,
 	) error
+	GetOrderItems(
+	ctx context.Context,
+	orderID int,
+	) ([]models.LineItem, error)
 }
 
 type UserRepository interface {
@@ -128,9 +132,11 @@ type UserRepository interface {
 	) (models.User, error)
 }
 type XsollaRepository interface {
-	SaveTransaction(
+	ProcessXsollaPayment(
 		ctx context.Context,
 		transactionID int64,
 		orderID int,
+		items []models.LineItem,
+
 	) (bool, error)
 }

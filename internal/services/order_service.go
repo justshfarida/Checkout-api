@@ -34,6 +34,7 @@ type OrderService struct {
 	cartRepo      repositories.CartRepository
 	payment       PaymentProcessor
 	xsollaService XsollaPaymentService
+	xsollaRep repositories.XsollaRepository
 }
 
 func NewOrderService(
@@ -42,6 +43,7 @@ func NewOrderService(
 	itemRepo repositories.ItemRepository,
 	payment PaymentProcessor,
 	xsollaService XsollaPaymentService,
+	xsollaRep repositories.XsollaRepository, 
 ) *OrderService {
 	return &OrderService{
 		repo:          repo,
@@ -49,6 +51,7 @@ func NewOrderService(
 		itemRepo:      itemRepo,
 		payment:       payment,
 		xsollaService: xsollaService,
+		xsollaRep: xsollaRep,
 	}
 }
 
@@ -264,4 +267,33 @@ func (s *OrderService) UpdateOrderStatus(
 		orderID,
 		status,
 	)
+}
+func (s *OrderService) ProcessXsollaPayment(
+	ctx context.Context,
+	orderID int,
+	transactionID int64,
+) error {
+	items, err := s.repo.GetOrderItems(
+		ctx,
+		orderID,
+	)
+	if err != nil {
+		return err
+	}
+
+	if len(items) == 0 {
+		return ErrOrderNotFound
+	}
+
+	_, err = s.xsollaRep.ProcessXsollaPayment(
+		ctx,
+		transactionID,
+		orderID,
+		items,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

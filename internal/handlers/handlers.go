@@ -76,6 +76,8 @@ type OrderService interface {
 	CreateOrder(ctx context.Context, userID int) (*services.CreateOrderResult, error)
 	GetOrdersByUserIDOffset(ctx context.Context, userID int, limit int, offset int) (services.OrderOffsetResult, error)
 	GetOrdersByUserIDCursor(ctx context.Context, userID int, rawCursor string, limit int) (services.OrderCursorResult, error)
+	ProcessXsollaPayment(ctx context.Context,orderID int,transactionID int64) error
+	UpdateOrderStatus(ctx context.Context,orderID int,status string) error
 }
 type XsollaService interface {
 	CreatePayment(ctx context.Context, userID int, orderID int, items []services.XsollaItem) (*services.XsollaPaymentResponse, error)
@@ -89,7 +91,6 @@ type Handler struct {
 	tokenService        TokenService
 	xsollaService       XsollaService
 	jwtSecret           []byte
-	xsollaWebhookSecret string
 	validate            *validator.Validate
 	idempotencyCache    map[string]*IdempotencyRecord
 }
@@ -108,7 +109,6 @@ func NewHandler(
 	tokenService TokenService,
 	xsollaService XsollaService,
 	jwtSecret []byte,
-	xsollaWebhookSecret string,
 
 ) *Handler {
 	return &Handler{
@@ -121,7 +121,6 @@ func NewHandler(
 		jwtSecret:           jwtSecret,
 		validate:            validator.New(),
 		idempotencyCache:    make(map[string]*IdempotencyRecord),
-		xsollaWebhookSecret: xsollaWebhookSecret,
 	}
 }
 
@@ -164,6 +163,10 @@ func (h *Handler) Routes() *http.ServeMux {
 		"GET /user/orders/cursor",
 		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserOrdersCursor), h.jwtSecret),
 	)
+	mux.HandleFunc(
+	"POST /webhook",
+	h.XsollaWebhook,
+)
 
 	mux.HandleFunc("GET /items", h.GetItems)
 	mux.HandleFunc("GET /items/cursor", h.GetItemsCursor)

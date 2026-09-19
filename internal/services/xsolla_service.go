@@ -157,5 +157,3 @@ func (s *XsollaService) VerifyXsollaSignature(rawBody []byte, authHeader string)
 		[]byte(strings.ToLower(expected)),
 	) == 1
 }
-
-

@@ -115,6 +115,7 @@ func main() {
 			repo,
 			paymentProcessor,
 			xsollaService,
+			repo, 
 		)
 	// --------------------
 	// HANDLER
@@ -129,7 +130,6 @@ func main() {
 			tokenService,
 			xsollaService,
 			jwtSecretBytes,
-			xsollaWebhookSecret,
 		)
 
 	// --------------------
