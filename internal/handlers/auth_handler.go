@@ -1,12 +1,12 @@
 package handlers
 
 import (
+	"checkout-api/internal/services"
+	"checkout-api/internal/validation"
 	"encoding/json"
 	"errors"
 	"net/http"
-
-	"checkout-api/internal/services"
-	"checkout-api/internal/validation"
+	"time"
 )
 
 // LoginUser godoc
@@ -111,7 +111,7 @@ func (h *Handler) LoginUser(
 			Secure:   false,
 			SameSite: http.SameSiteLaxMode,
 			Expires:  refreshExpiresAt,
-			MaxAge:   30 * 24 * 60 * 60,
+			MaxAge:   int(7 * 24 * time.Hour),
 		},
 	)
 
@@ -275,7 +275,7 @@ func (h *Handler) IssueJWT(
 			Secure:   false,
 			SameSite: http.SameSiteLaxMode,
 			Expires:  newRefreshExpiresAt,
-			MaxAge:   30 * 24 * 60 * 60,
+			MaxAge:   int(7 * 24 * time.Hour),
 		},
 	)
 
@@ -286,4 +286,42 @@ func (h *Handler) IssueJWT(
 			JWT: accessToken,
 		},
 	)
+}
+
+func (h *Handler) Logout(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	cookie, err := r.Cookie("refresh_token")
+
+	if err == nil {
+		if err := h.tokenService.Logout(
+			r.Context(),
+			cookie.Value,
+		); err != nil {
+			writeError(
+				w,
+				http.StatusInternalServerError,
+				"LOGOUT_FAILED",
+				"failed to log out",
+			)
+			return
+		}
+	}
+
+	http.SetCookie(
+		w,
+		&http.Cookie{
+			Name:     "refresh_token",
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   false,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+			Expires:  time.Unix(0, 0),
+		},
+	)
+
+	w.WriteHeader(http.StatusNoContent)
 }

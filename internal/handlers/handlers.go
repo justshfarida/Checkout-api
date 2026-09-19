@@ -32,6 +32,7 @@ type AuthService interface {
 	ctx context.Context,
 	id int,
 	) (bool, error)
+	
 }
 
 type TokenService interface {
@@ -57,6 +58,10 @@ type TokenService interface {
 		time.Time,
 		error,
 	)
+	Logout(
+	ctx context.Context,
+	refreshToken string,
+) error
 }
 
 type ItemService interface {
@@ -174,7 +179,8 @@ func (h *Handler) Routes() *http.ServeMux {
 
 	mux.HandleFunc("POST /signup", h.CreateUser)
 	mux.HandleFunc("POST /login", h.LoginUser)
-	mux.HandleFunc("GET /token", h.IssueJWT)
+	mux.HandleFunc("POST /token", h.IssueJWT)
+	mux.HandleFunc("POST /logout",h.Logout)
 	return mux
 }
 

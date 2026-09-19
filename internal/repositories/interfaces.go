@@ -130,6 +130,10 @@ type UserRepository interface {
 		ctx context.Context,
 		id int,
 	) (models.User, error)
+	DeleteRefreshToken(
+	ctx context.Context,
+	tokenHash []byte,
+) error
 }
 type XsollaRepository interface {
 	ProcessXsollaPayment(

@@ -246,3 +246,25 @@ func (r *PostgresRepository) FindUserByID(
 
 	return user, nil
 }
+
+func (r *PostgresRepository) DeleteRefreshToken(
+	ctx context.Context,
+	tokenHash []byte,
+) error {
+	_, err := r.pool.Exec(
+		ctx,
+		`
+		DELETE FROM refresh_tokens
+		WHERE token_hash = $1
+		`,
+		tokenHash,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to delete refresh token: %w",
+			err,
+		)
+	}
+
+	return nil
+}

@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
-	"fmt"
 )
 
 type XsollaWebhook struct {
@@ -43,10 +43,10 @@ func (h *Handler) XsollaWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID REQUEST BODY", "failed to read request body")
 		return
 	}
-	// if !h.xsollaService.VerifyXsollaSignature(body,r.Header.Get("Authorization") ){
-	// 	writeError(w, http.StatusBadRequest, "INVALID SIGNATURE", "signature mismatch")
-	// 	return
-	// }
+	if !h.xsollaService.VerifyXsollaSignature(body,r.Header.Get("Authorization") ){
+		writeError(w, http.StatusBadRequest, "INVALID SIGNATURE", "signature mismatch")
+		return
+	}
 	var webhook XsollaWebhook
 	if err:= json.Unmarshal(body, &webhook); err!=nil{
 		writeError(
@@ -91,12 +91,13 @@ func (h *Handler) handleXsollaUserValidation(w http.ResponseWriter, r *http.Requ
 	userId, err:=strconv.Atoi(webhook.User.ID)
 	if err!=nil{
 		writeError(
-			w, http.StatusBadRequest, "INVALID_USER", "invalid user id", 
-		)
+			w, http.StatusBadRequest, "INVALID_USER", "invalid user id")
+			return
 	}
 	result, err:=h.authService.UserExists(r.Context(), userId);
 	if err!=nil{
 		writeError(w, http.StatusNotFound, "INTERNAL_ERROR", "failed to validate user")
+		return
 	}
 	if !result{
 		writeError(w, http.StatusBadRequest, "INVALID_USER", "user not found")
