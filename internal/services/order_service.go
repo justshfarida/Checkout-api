@@ -34,7 +34,7 @@ type OrderService struct {
 	cartRepo      repositories.CartRepository
 	payment       PaymentProcessor
 	xsollaService XsollaPaymentService
-	xsollaRep repositories.XsollaRepository
+	xsollaRep     repositories.XsollaRepository
 }
 
 func NewOrderService(
@@ -43,7 +43,7 @@ func NewOrderService(
 	itemRepo repositories.ItemRepository,
 	payment PaymentProcessor,
 	xsollaService XsollaPaymentService,
-	xsollaRep repositories.XsollaRepository, 
+	xsollaRep repositories.XsollaRepository,
 ) *OrderService {
 	return &OrderService{
 		repo:          repo,
@@ -51,7 +51,7 @@ func NewOrderService(
 		itemRepo:      itemRepo,
 		payment:       payment,
 		xsollaService: xsollaService,
-		xsollaRep: xsollaRep,
+		xsollaRep:     xsollaRep,
 	}
 }
 

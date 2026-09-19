@@ -96,8 +96,8 @@ type OrderRepository interface {
 		items []models.LineItem,
 	) error
 	GetOrderItems(
-	ctx context.Context,
-	orderID int,
+		ctx context.Context,
+		orderID int,
 	) ([]models.LineItem, error)
 }
 
@@ -131,9 +131,9 @@ type UserRepository interface {
 		id int,
 	) (models.User, error)
 	DeleteRefreshToken(
-	ctx context.Context,
-	tokenHash []byte,
-) error
+		ctx context.Context,
+		tokenHash []byte,
+	) error
 }
 type XsollaRepository interface {
 	ProcessXsollaPayment(

@@ -24,7 +24,7 @@ type XsollaWebhook struct {
 			ID int64 `json:"id"`
 		} `json:"transaction"`
 	} `json:"billing"`
-	Items []XsollaWebhookItem `json:"items"`
+	Items            []XsollaWebhookItem `json:"items"`
 	CustomParameters struct {
 		OrderID string `json:"order_id"`
 	} `json:"custom_parameters"`
@@ -43,12 +43,12 @@ func (h *Handler) XsollaWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID REQUEST BODY", "failed to read request body")
 		return
 	}
-	if !h.xsollaService.VerifyXsollaSignature(body,r.Header.Get("Authorization") ){
+	if !h.xsollaService.VerifyXsollaSignature(body, r.Header.Get("Authorization")) {
 		writeError(w, http.StatusBadRequest, "INVALID SIGNATURE", "signature mismatch")
 		return
 	}
 	var webhook XsollaWebhook
-	if err:= json.Unmarshal(body, &webhook); err!=nil{
+	if err := json.Unmarshal(body, &webhook); err != nil {
 		writeError(
 			w,
 			http.StatusBadRequest,
@@ -58,8 +58,7 @@ func (h *Handler) XsollaWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-
-	switch webhook.NotificationType{
+	switch webhook.NotificationType {
 
 	case "user_validation":
 		h.handleXsollaUserValidation(
@@ -67,7 +66,7 @@ func (h *Handler) XsollaWebhook(w http.ResponseWriter, r *http.Request) {
 			r,
 			webhook,
 		)
-	
+
 	case "order_paid":
 		h.handleXsollaOrderPaid(
 			w,
@@ -85,23 +84,23 @@ func (h *Handler) XsollaWebhook(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNoContent)
 
+	}
 }
-}
-func (h *Handler) handleXsollaUserValidation(w http.ResponseWriter, r *http.Request,webhook XsollaWebhook){
-	userId, err:=strconv.Atoi(webhook.User.ID)
-	if err!=nil{
+func (h *Handler) handleXsollaUserValidation(w http.ResponseWriter, r *http.Request, webhook XsollaWebhook) {
+	userId, err := strconv.Atoi(webhook.User.ID)
+	if err != nil {
 		writeError(
 			w, http.StatusBadRequest, "INVALID_USER", "invalid user id")
-			return
+		return
 	}
-	result, err:=h.authService.UserExists(r.Context(), userId);
-	if err!=nil{
+	result, err := h.authService.UserExists(r.Context(), userId)
+	if err != nil {
 		writeError(w, http.StatusNotFound, "INTERNAL_ERROR", "failed to validate user")
 		return
 	}
-	if !result{
+	if !result {
 		writeError(w, http.StatusBadRequest, "INVALID_USER", "user not found")
-		return 
+		return
 	}
 	w.WriteHeader(http.StatusOK)
 
@@ -113,13 +112,13 @@ func (h *Handler) handleXsollaOrderPaid(
 	webhook XsollaWebhook,
 ) {
 	// TODO:
-	transactionID :=int64( webhook.Billing.Transaction.ID)
-	orderID, err :=strconv.Atoi(webhook.CustomParameters.OrderID)
+	transactionID := int64(webhook.Billing.Transaction.ID)
+	orderID, err := strconv.Atoi(webhook.CustomParameters.OrderID)
 	if err != nil {
-		writeError(w,http.StatusBadRequest,"INVALID_ORDER_ID","invalid order id")
+		writeError(w, http.StatusBadRequest, "INVALID_ORDER_ID", "invalid order id")
 		return
 	}
-	
+
 	err = h.orderService.ProcessXsollaPayment(
 		r.Context(),
 		orderID,

@@ -29,10 +29,9 @@ type AuthService interface {
 		password []byte,
 	) (models.User, error)
 	UserExists(
-	ctx context.Context,
-	id int,
+		ctx context.Context,
+		id int,
 	) (bool, error)
-	
 }
 
 type TokenService interface {
@@ -59,9 +58,9 @@ type TokenService interface {
 		error,
 	)
 	Logout(
-	ctx context.Context,
-	refreshToken string,
-) error
+		ctx context.Context,
+		refreshToken string,
+	) error
 }
 
 type ItemService interface {
@@ -81,23 +80,23 @@ type OrderService interface {
 	CreateOrder(ctx context.Context, userID int) (*services.CreateOrderResult, error)
 	GetOrdersByUserIDOffset(ctx context.Context, userID int, limit int, offset int) (services.OrderOffsetResult, error)
 	GetOrdersByUserIDCursor(ctx context.Context, userID int, rawCursor string, limit int) (services.OrderCursorResult, error)
-	ProcessXsollaPayment(ctx context.Context,orderID int,transactionID int64) error
-	UpdateOrderStatus(ctx context.Context,orderID int,status string) error
+	ProcessXsollaPayment(ctx context.Context, orderID int, transactionID int64) error
+	UpdateOrderStatus(ctx context.Context, orderID int, status string) error
 }
 type XsollaService interface {
 	CreatePayment(ctx context.Context, userID int, orderID int, items []services.XsollaItem) (*services.XsollaPaymentResponse, error)
 	VerifyXsollaSignature(rawBody []byte, authHeader string) bool
 }
 type Handler struct {
-	authService         AuthService
-	itemService         ItemService
-	cartService         CartService
-	orderService        OrderService
-	tokenService        TokenService
-	xsollaService       XsollaService
-	jwtSecret           []byte
-	validate            *validator.Validate
-	idempotencyCache    map[string]*IdempotencyRecord
+	authService      AuthService
+	itemService      ItemService
+	cartService      CartService
+	orderService     OrderService
+	tokenService     TokenService
+	xsollaService    XsollaService
+	jwtSecret        []byte
+	validate         *validator.Validate
+	idempotencyCache map[string]*IdempotencyRecord
 }
 
 type IdempotencyRecord struct {
@@ -117,15 +116,15 @@ func NewHandler(
 
 ) *Handler {
 	return &Handler{
-		authService:         authService,
-		itemService:         itemService,
-		cartService:         cartService,
-		orderService:        orderService,
-		tokenService:        tokenService,
-		xsollaService:       xsollaService,
-		jwtSecret:           jwtSecret,
-		validate:            validator.New(),
-		idempotencyCache:    make(map[string]*IdempotencyRecord),
+		authService:      authService,
+		itemService:      itemService,
+		cartService:      cartService,
+		orderService:     orderService,
+		tokenService:     tokenService,
+		xsollaService:    xsollaService,
+		jwtSecret:        jwtSecret,
+		validate:         validator.New(),
+		idempotencyCache: make(map[string]*IdempotencyRecord),
 	}
 }
 
@@ -169,9 +168,9 @@ func (h *Handler) Routes() *http.ServeMux {
 		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserOrdersCursor), h.jwtSecret),
 	)
 	mux.HandleFunc(
-	"POST /webhook",
-	h.XsollaWebhook,
-)
+		"POST /webhook",
+		h.XsollaWebhook,
+	)
 
 	mux.HandleFunc("GET /items", h.GetItems)
 	mux.HandleFunc("GET /items/cursor", h.GetItemsCursor)
@@ -180,7 +179,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("POST /signup", h.CreateUser)
 	mux.HandleFunc("POST /login", h.LoginUser)
 	mux.HandleFunc("POST /token", h.IssueJWT)
-	mux.HandleFunc("POST /logout",h.Logout)
+	mux.HandleFunc("POST /logout", h.Logout)
 	return mux
 }
 

@@ -115,7 +115,7 @@ func main() {
 			repo,
 			paymentProcessor,
 			xsollaService,
-			repo, 
+			repo,
 		)
 	// --------------------
 	// HANDLER
