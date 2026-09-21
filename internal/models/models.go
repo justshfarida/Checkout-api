@@ -11,6 +11,7 @@ type Item struct {
 	Stock        int       `json:"stock"`
 	CreatedAt    time.Time `json:"created_at"`
 	CreditAmount *int      `json:"credit_amount"`
+	ItemType     string    `json:"item_type"`
 }
 
 // LineItem is a line item in an order.
@@ -39,14 +40,15 @@ type Cart struct {
 
 // CartItem is an item in a user's cart joined with its product details.
 type CartItem struct {
-	ID          int       `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Price       int       `json:"price"` // Price in cents
-	Stock       int       `json:"stock"`
-	CreatedAt   time.Time `json:"created_at"`
-	Quantity    int       `json:"quantity"`
-	CreditAmount *int `json:"credit_amount"`
+	ID           int       `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	Price        int       `json:"price"` // Price in cents
+	Stock        int       `json:"stock"`
+	CreatedAt    time.Time `json:"created_at"`
+	Quantity     int       `json:"quantity"`
+	CreditAmount *int      `json:"credit_amount"`
+	ItemType     string    `json:"item_type"`
 }
 
 type User struct {
@@ -67,4 +69,10 @@ type UserOrder struct {
 	Total  int
 	Status string
 	Items  []OrderItem
+}
+type InventoryItem struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Quantity    int    `json:"quantity"`
 }

@@ -200,13 +200,16 @@ func (s *OrderService) CreateOrder(
 			return nil, ErrItemNotFound
 		}
 
-		if err := validation.ValidateStock(
-			item.Stock,
-			cartItem.Quantity,
-		); err != nil {
-			return nil, err
+		// Only physical merchandise has limited stock.
+		// Virtual items and currency packages have unlimited stock.
+		if item.ItemType == "merch" {
+			if err := validation.ValidateStock(
+				item.Stock,
+				cartItem.Quantity,
+			); err != nil {
+				return nil, err
+			}
 		}
-
 		lineItems = append(
 			lineItems,
 			models.LineItem{

@@ -105,3 +105,12 @@ func (s *AuthService) GetUserByID(
 		id,
 	)
 }
+func (s *AuthService) GetUserInventory(
+	ctx context.Context,
+	userID int,
+) ([]models.InventoryItem, error) {
+	return s.repo.GetUserInventory(
+		ctx,
+		userID,
+	)
+}

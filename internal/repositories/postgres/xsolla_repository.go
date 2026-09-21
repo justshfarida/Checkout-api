@@ -38,7 +38,7 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, err
 	}
 
-	// Already processed.
+	// This transaction was already processed.
 	if result.RowsAffected() == 0 {
 		return false, nil
 	}
@@ -72,45 +72,72 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, repositories.ErrOrderNotPending
 	}
 
-	// 3. Decrease stock only for normal items.
-	// Gold packages (credit_amount IS NOT NULL) have unlimited stock.
+	// 3. Process each item according to its type.
 	for _, item := range items {
-		result, err := tx.Exec(
+		var itemType string
+
+		err = tx.QueryRow(
 			ctx,
 			`
-		UPDATE items
-		SET stock = stock - $1
-		WHERE id = $2
-		  AND credit_amount IS NULL
-		  AND stock >= $1
-		`,
-			item.Quantity,
+			SELECT item_type
+			FROM items
+			WHERE id = $1
+			`,
 			item.ItemID,
-		)
+		).Scan(&itemType)
 		if err != nil {
 			return false, err
 		}
 
-		if result.RowsAffected() == 0 {
-			// Check whether this is a Gold package.
-			var isGoldPackage bool
+		switch itemType {
 
-			err = tx.QueryRow(
+		case "merch":
+			// Physical merchandise has limited stock.
+			result, err := tx.Exec(
 				ctx,
 				`
-			SELECT credit_amount IS NOT NULL
-			FROM items
-			WHERE id = $1
-			`,
+				UPDATE items
+				SET stock = stock - $1
+				WHERE id = $2
+				  AND stock >= $1
+				`,
+				item.Quantity,
 				item.ItemID,
-			).Scan(&isGoldPackage)
+			)
 			if err != nil {
 				return false, err
 			}
 
-			if !isGoldPackage {
+			if result.RowsAffected() == 0 {
 				return false, validation.ErrInsufficientStock
 			}
+
+		case "virtual_item":
+			// Give the purchased virtual item to the user.
+			_, err := tx.Exec(
+				ctx,
+				`
+				INSERT INTO user_inventory (
+					user_id,
+					item_id,
+					quantity
+				)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (user_id, item_id)
+				DO UPDATE SET
+					quantity = user_inventory.quantity + EXCLUDED.quantity
+				`,
+				userID,
+				item.ItemID,
+				item.Quantity,
+			)
+			if err != nil {
+				return false, err
+			}
+
+		case "currency_package":
+			// No stock handling here.
+			// Gold is credited below using credit_amount.
 		}
 	}
 

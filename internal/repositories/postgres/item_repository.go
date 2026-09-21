@@ -26,7 +26,8 @@ func (r *PostgresRepository) GetItem(
 			price,
 			stock,
 			created_at,
-			credit_amount
+			credit_amount, 
+			item_type
 		FROM items
 		WHERE id = $1
 		`,
@@ -39,6 +40,7 @@ func (r *PostgresRepository) GetItem(
 		&item.Stock,
 		&item.CreatedAt,
 		&item.CreditAmount,
+		&item.ItemType,
 	)
 
 	if err != nil {
@@ -71,7 +73,8 @@ func (r *PostgresRepository) GetItemsOffset(
 			price,
 			stock,
 			created_at,
-			credit_amount
+			credit_amount, 
+			item_type
 		FROM items
 		ORDER BY id
 		LIMIT $1
@@ -103,6 +106,7 @@ func (r *PostgresRepository) GetItemsOffset(
 			&item.Stock,
 			&item.CreatedAt,
 			&item.CreditAmount,
+			&item.ItemType,
 		); err != nil {
 			return nil, fmt.Errorf(
 				"failed to scan item: %w",
@@ -141,7 +145,8 @@ func (r *PostgresRepository) GetItemsCursor(
 			price,
 			stock,
 			created_at,
-			credit_amount
+			credit_amount, 
+			item_type
 		FROM items
 		WHERE id > $1
 		ORDER BY id
@@ -173,6 +178,7 @@ func (r *PostgresRepository) GetItemsCursor(
 			&item.Stock,
 			&item.CreatedAt,
 			&item.CreditAmount,
+			&item.ItemType,
 		); err != nil {
 			return nil, fmt.Errorf(
 				"failed to scan item: %w",

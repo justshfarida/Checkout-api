@@ -277,3 +277,66 @@ func (r *PostgresRepository) DeleteRefreshToken(
 
 	return nil
 }
+func (r *PostgresRepository) GetUserInventory(
+	ctx context.Context,
+	userID int,
+) ([]models.InventoryItem, error) {
+	rows, err := r.pool.Query(
+		ctx,
+		`
+		SELECT
+			i.id,
+			i.name,
+			i.description,
+			ui.quantity
+		FROM user_inventory ui
+		JOIN items i
+			ON i.id = ui.item_id
+		WHERE ui.user_id = $1
+		ORDER BY i.id
+		`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to get user inventory: %w",
+			err,
+		)
+	}
+	defer rows.Close()
+
+	inventory := make(
+		[]models.InventoryItem,
+		0,
+	)
+
+	for rows.Next() {
+		var item models.InventoryItem
+
+		if err := rows.Scan(
+			&item.ID,
+			&item.Name,
+			&item.Description,
+			&item.Quantity,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"failed to scan inventory item: %w",
+				err,
+			)
+		}
+
+		inventory = append(
+			inventory,
+			item,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(
+			"failed to read inventory rows: %w",
+			err,
+		)
+	}
+
+	return inventory, nil
+}

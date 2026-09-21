@@ -362,3 +362,35 @@ func (h *Handler) GetCurrentUser(
 		},
 	)
 }
+func (h *Handler) GetUserInventory(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok := middlewares.UserIDFromContext(
+		r.Context(),
+	)
+	if !ok {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
+		)
+		return
+	}
+
+	inventory, err := h.authService.GetUserInventory(
+		r.Context(),
+		userID,
+	)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		inventory,
+	)
+}

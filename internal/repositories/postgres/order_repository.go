@@ -44,7 +44,8 @@ func (r *PostgresRepository) CreateOrder(
 				description,
 				price,
 				stock,
-				created_at
+				created_at,
+				item_type
 			FROM items
 			WHERE id = $1
 			FOR UPDATE
@@ -57,6 +58,7 @@ func (r *PostgresRepository) CreateOrder(
 			&item.Price,
 			&item.Stock,
 			&item.CreatedAt,
+			&item.ItemType,
 		)
 
 		if err != nil {
@@ -74,7 +76,11 @@ func (r *PostgresRepository) CreateOrder(
 			)
 		}
 
-		if item.Stock < lineItem.Quantity {
+		// Only physical merchandise has limited stock.
+		// Virtual items and currency packages have unlimited stock.
+		if item.ItemType == "merch" &&
+			item.Stock < lineItem.Quantity {
+
 			return nil, fmt.Errorf(
 				"insufficient stock for item %d: have %d, need %d",
 				lineItem.ItemID,
@@ -86,6 +92,7 @@ func (r *PostgresRepository) CreateOrder(
 
 	var orderID int
 	var createdAt time.Time
+
 	err = tx.QueryRow(
 		ctx,
 		`
@@ -100,7 +107,10 @@ func (r *PostgresRepository) CreateOrder(
 		userID,
 		total,
 		status,
-	).Scan(&orderID, &createdAt)
+	).Scan(
+		&orderID,
+		&createdAt,
+	)
 
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -362,6 +372,28 @@ func (r *PostgresRepository) MarkOrderPaid(
 	defer tx.Rollback(ctx)
 
 	for _, item := range items {
+		var itemType string
+
+		err := tx.QueryRow(
+			ctx,
+			`
+			SELECT item_type
+			FROM items
+			WHERE id = $1
+			`,
+			item.ItemID,
+		).Scan(&itemType)
+
+		if err != nil {
+			return err
+		}
+
+		// Only physical merchandise has limited stock.
+		// Virtual items and currency packages have unlimited stock.
+		if itemType != "merch" {
+			continue
+		}
+
 		result, err := tx.Exec(
 			ctx,
 			`

@@ -134,6 +134,10 @@ type UserRepository interface {
 		ctx context.Context,
 		tokenHash []byte,
 	) error
+	GetUserInventory(
+	ctx context.Context,
+	userID int,
+) ([]models.InventoryItem, error)
 }
 type XsollaRepository interface {
 	ProcessXsollaPayment(

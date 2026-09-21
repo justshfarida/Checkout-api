@@ -156,7 +156,7 @@ func (s *CartService) UpsertCartItem(
 
 	// Normal items are limited by stock.
 	// Gold packages have unlimited stock.
-	if item.CreditAmount == nil {
+	if item.ItemType== "merch" {
 		if err := validation.ValidateStock(
 			item.Stock,
 			quantity,
