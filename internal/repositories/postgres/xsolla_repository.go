@@ -72,16 +72,18 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, repositories.ErrOrderNotPending
 	}
 
-	// 3. Decrease stock.
+	// 3. Decrease stock only for normal items.
+	// Gold packages (credit_amount IS NOT NULL) have unlimited stock.
 	for _, item := range items {
 		result, err := tx.Exec(
 			ctx,
 			`
-			UPDATE items
-			SET stock = stock - $1
-			WHERE id = $2
-			  AND stock >= $1
-			`,
+		UPDATE items
+		SET stock = stock - $1
+		WHERE id = $2
+		  AND credit_amount IS NULL
+		  AND stock >= $1
+		`,
 			item.Quantity,
 			item.ItemID,
 		)
@@ -90,11 +92,66 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		}
 
 		if result.RowsAffected() == 0 {
-			return false, validation.ErrInsufficientStock
+			// Check whether this is a Gold package.
+			var isGoldPackage bool
+
+			err = tx.QueryRow(
+				ctx,
+				`
+			SELECT credit_amount IS NOT NULL
+			FROM items
+			WHERE id = $1
+			`,
+				item.ItemID,
+			).Scan(&isGoldPackage)
+			if err != nil {
+				return false, err
+			}
+
+			if !isGoldPackage {
+				return false, validation.ErrInsufficientStock
+			}
 		}
 	}
 
-	// 4. Mark order as paid.
+	// 4. Calculate how much Gold this order gives.
+	var totalCredit int
+
+	err = tx.QueryRow(
+		ctx,
+		`
+		SELECT COALESCE(
+			SUM(COALESCE(i.credit_amount, 0) * li.quantity),
+			0
+		)
+		FROM line_items li
+		JOIN items i ON i.id = li.item_id
+		WHERE li.order_id = $1
+		`,
+		orderID,
+	).Scan(&totalCredit)
+	if err != nil {
+		return false, err
+	}
+
+	// 5. Credit Gold to the user's balance.
+	if totalCredit > 0 {
+		_, err = tx.Exec(
+			ctx,
+			`
+			UPDATE users
+			SET balance = balance + $1
+			WHERE id = $2
+			`,
+			totalCredit,
+			userID,
+		)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	// 6. Mark order as paid.
 	result, err = tx.Exec(
 		ctx,
 		`
@@ -113,7 +170,7 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, repositories.ErrOrderNotPending
 	}
 
-	// 5. Clear the user's cart.
+	// 7. Clear the user's cart.
 	_, err = tx.Exec(
 		ctx,
 		`
@@ -126,7 +183,7 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, err
 	}
 
-	// 6. Commit everything.
+	// 8. Commit everything.
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}

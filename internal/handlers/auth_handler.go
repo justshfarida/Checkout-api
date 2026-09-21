@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"checkout-api/internal/middlewares"
 	"checkout-api/internal/services"
 	"checkout-api/internal/validation"
 	"encoding/json"
@@ -324,4 +325,40 @@ func (h *Handler) Logout(
 	)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+func (h *Handler) GetCurrentUser(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok := middlewares.UserIDFromContext(
+		r.Context(),
+	)
+	if !ok {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
+		)
+		return
+	}
+
+	user, err := h.authService.GetUserByID(
+		r.Context(),
+		userID,
+	)
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		map[string]any{
+			"id":      user.ID,
+			"email":   user.Email,
+			"balance": user.Balance,
+		},
+	)
 }

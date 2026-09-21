@@ -4,12 +4,13 @@ import "time"
 
 // Item represents a product available for purchase.
 type Item struct {
-	ID          int       `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Price       int       `json:"price"` // Price in cents
-	Stock       int       `json:"stock"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID           int       `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	Price        int       `json:"price"` // Price in cents
+	Stock        int       `json:"stock"`
+	CreatedAt    time.Time `json:"created_at"`
+	CreditAmount *int      `json:"credit_amount"`
 }
 
 // LineItem is a line item in an order.
@@ -45,12 +46,14 @@ type CartItem struct {
 	Stock       int       `json:"stock"`
 	CreatedAt   time.Time `json:"created_at"`
 	Quantity    int       `json:"quantity"`
+	CreditAmount *int `json:"credit_amount"`
 }
 
 type User struct {
-	ID    int    `json:"id"`
-	Email string `json:"email"`
-	Hash  []byte
+	ID      int    `json:"id"`
+	Email   string `json:"email"`
+	Hash    []byte
+	Balance int `json:"balance"`
 }
 type OrderItem struct {
 	ItemID   int

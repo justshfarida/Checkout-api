@@ -96,3 +96,12 @@ func (s *AuthService) UserExists(
 
 	return true, nil
 }
+func (s *AuthService) GetUserByID(
+	ctx context.Context,
+	id int,
+) (models.User, error) {
+	return s.repo.FindUserByID(
+		ctx,
+		id,
+	)
+}

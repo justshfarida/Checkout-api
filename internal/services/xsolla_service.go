@@ -150,7 +150,7 @@ func (s *XsollaService) VerifyXsollaSignature(rawBody []byte, authHeader string)
 
 	expected := hex.EncodeToString(
 		h.Sum(nil),
-	)
+	) //give me the SHA-1 result as bytes
 
 	return subtle.ConstantTimeCompare(
 		[]byte(strings.ToLower(provided)),

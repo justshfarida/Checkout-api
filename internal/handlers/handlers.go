@@ -28,12 +28,17 @@ type AuthService interface {
 		email string,
 		password []byte,
 	) (models.User, error)
+
 	UserExists(
 		ctx context.Context,
 		id int,
 	) (bool, error)
-}
 
+	GetUserByID(
+		ctx context.Context,
+		id int,
+	) (models.User, error)
+}
 type TokenService interface {
 	CreateAccessToken(
 		userID int,
@@ -137,7 +142,13 @@ func (h *Handler) Routes() *http.ServeMux {
 		"GET /swagger/",
 		httpSwagger.WrapHandler,
 	)
-
+	mux.Handle(
+		"GET /user/me",
+		middlewares.AuthMiddleware(
+			http.HandlerFunc(h.GetCurrentUser),
+			h.jwtSecret,
+		),
+	)
 	mux.Handle(
 		"GET /user/cart",
 		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserCart), h.jwtSecret),
