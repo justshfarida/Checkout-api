@@ -40,8 +40,8 @@ type AuthService interface {
 	) (models.User, error)
 
 	GetUserInventory(
-	ctx context.Context,
-	userID int,
+		ctx context.Context,
+		userID int,
 	) ([]models.InventoryItem, error)
 }
 type TokenService interface {
@@ -155,12 +155,12 @@ func (h *Handler) Routes() *http.ServeMux {
 		),
 	)
 	mux.Handle(
-	"GET /user/inventory",
-	middlewares.AuthMiddleware(
-		http.HandlerFunc(h.GetUserInventory),
-		h.jwtSecret,
-	),
-)
+		"GET /user/inventory",
+		middlewares.AuthMiddleware(
+			http.HandlerFunc(h.GetUserInventory),
+			h.jwtSecret,
+		),
+	)
 	mux.Handle(
 		"GET /user/cart",
 		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserCart), h.jwtSecret),
