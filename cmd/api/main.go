@@ -106,8 +106,8 @@ func main() {
 
 	mux := h.Routes()
 	mux.HandleFunc("GET /telemetry-test-error", func(w http.ResponseWriter, r *http.Request) {
-    http.Error(w, "Intentional telemetry test error", http.StatusInternalServerError)
-})
+		http.Error(w, "Intentional telemetry test error", http.StatusInternalServerError)
+	})
 
 	// TELEMETRY
 	shutdownTelemetry, err := telemetry.Init(ctx)
