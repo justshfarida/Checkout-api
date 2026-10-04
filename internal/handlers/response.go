@@ -54,6 +54,9 @@ type CartItemResponse struct {
 	Stock       int       `json:"stock"`
 	CreatedAt   time.Time `json:"created_at"`
 	Quantity    int       `json:"quantity"`
+	// ItemType lets the frontend decide whether stock applies (only "merch").
+	ItemType     string `json:"item_type"`
+	CreditAmount *int   `json:"credit_amount"`
 }
 
 type AuthResponse struct {
