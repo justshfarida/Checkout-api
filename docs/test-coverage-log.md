@@ -17,7 +17,7 @@ Run with: `go test -cover ./internal/...`
 |---|---|
 | internal/services | ok, 93.2% |
 | internal/middlewares | ok, 95.6% |
-| internal/handlers | 89.2%. After the fixes for bugs 2 and 3, **1 test still fails on purpose** (bug 1, idempotency) |
+| internal/handlers | ok, all tests pass (all 3 suspected bugs fixed) |
 
 The handler tests moved from `internal/handlers/unit_tests/` to `internal/handlers/`, so they are in the same package as the code they test.
 
@@ -51,7 +51,7 @@ Format: `candidate — what changed — outcome — reason`
 
 ## Suspected production bugs (the failing tests are kept on purpose)
 
-1. **Idempotency key is not scoped to the user**: `order_handler.go`, `TestHandler_CreateOrder_IdempotencyKeyIsScopedToUser`.
+1. ✅ **FIXED** — **Idempotency key is not scoped to the user**: `order_handler.go`, `TestHandler_CreateOrder_IdempotencyKeyIsScopedToUser`.
    - The cache is keyed only by `Idempotency-Key`. If user 8 sends a key that user 7 already used, user 8 receives user 7's order and payment link.
    - Fix: key the cache by `userID + ":" + key`. The map is also not safe for concurrent requests, so add a `sync.Mutex`.
 2. ✅ **FIXED** — **Refresh cookie MaxAge is in nanoseconds**: `auth_handler.go` (LoginUser and IssueJWT), `TestHandler_LoginUser_RefreshCookieLastsSevenDays`.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"checkout-api/internal/middlewares"
@@ -106,6 +107,7 @@ type Handler struct {
 	xsollaService    XsollaService
 	jwtSecret        []byte
 	validate         *validator.Validate
+	idempotencyMu    sync.Mutex
 	idempotencyCache map[string]*IdempotencyRecord
 }
 
