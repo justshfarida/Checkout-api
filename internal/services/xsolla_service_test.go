@@ -22,7 +22,7 @@ func TestXsollaService_VerifyXsollaSignature(t *testing.T) {
 	const secret = "webhook-secret"
 	body := []byte(`{"notification_type":"order_paid","custom_parameters":{"order_id":"5"}}`)
 
-	service := NewXsollaService("proj", "merchant", "api-key", secret)
+	service := NewXsollaService("proj", "merchant", "api-key", secret, "")
 
 	tests := []struct {
 		name   string
@@ -86,7 +86,7 @@ func jsonResponse(status int, body string) *http.Response {
 }
 
 func TestXsollaService_CreatePayment_SendsDocumentedRequest(t *testing.T) {
-	service := NewXsollaService("12345", "merchant", "secret-api-key", "wh")
+	service := NewXsollaService("12345", "merchant", "secret-api-key", "wh", "http://checkout.local/payment/success")
 
 	var captured *http.Request
 	var capturedBody []byte
@@ -131,6 +131,9 @@ func TestXsollaService_CreatePayment_SendsDocumentedRequest(t *testing.T) {
 			Items []XsollaItem `json:"items"`
 		} `json:"purchase"`
 		CustomParameters map[string]string `json:"custom_parameters"`
+		Settings         struct {
+			ReturnURL string `json:"return_url"`
+		} `json:"settings"`
 	}
 	if err := json.Unmarshal(capturedBody, &sent); err != nil {
 		t.Fatalf("request body is not JSON: %v", err)
@@ -145,10 +148,14 @@ func TestXsollaService_CreatePayment_SendsDocumentedRequest(t *testing.T) {
 	if sent.CustomParameters["order_id"] != "42" {
 		t.Errorf("custom_parameters.order_id = %q, want 42", sent.CustomParameters["order_id"])
 	}
+	// Each environment must redirect back to its own frontend after payment.
+	if sent.Settings.ReturnURL != "http://checkout.local/payment/success" {
+		t.Errorf("settings.return_url = %q, want this environment's success page", sent.Settings.ReturnURL)
+	}
 }
 
 func TestXsollaService_CreatePayment_NonSuccessStatusReturnsError(t *testing.T) {
-	service := NewXsollaService("12345", "merchant", "key", "wh")
+	service := NewXsollaService("12345", "merchant", "key", "wh", "")
 	service.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusUnprocessableEntity, `{"errorCode":1102,"errorMessage":"Item not found"}`), nil
 	})}

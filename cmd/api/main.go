@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -82,6 +83,8 @@ func main() {
 		xsollaMerchantID,
 		xsollaAPIKey,
 		xsollaWebhookSecret,
+		// After payment, send the user back to this environment's frontend.
+		strings.TrimRight(frontendURL, "/")+"/payment/success",
 	)
 
 	orderService := services.NewOrderService(
