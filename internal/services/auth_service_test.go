@@ -39,7 +39,62 @@ type fakeAuthRepository struct {
 	oldRefreshTokenHash []byte
 	newRefreshTokenHash []byte
 	newRefreshExpiresAt time.Time
+
+	// FindUserByID
+	userByID       models.User
+	findByIDErr    error
+	findByIDCalled bool
+	findByIDArg    int
+
+	// DeleteRefreshToken
+	deleteRefreshErr    error
+	deleteRefreshCalled bool
+	deletedTokenHash    []byte
+
+	// GetUserInventory
+	inventory    []models.InventoryItem
+	inventoryErr error
+	inventoryArg int
 }
+
+func (f *fakeAuthRepository) FindUserByID(
+	ctx context.Context,
+	id int,
+) (models.User, error) {
+	f.findByIDCalled = true
+	f.findByIDArg = id
+
+	if f.findByIDErr != nil {
+		return models.User{}, f.findByIDErr
+	}
+
+	return f.userByID, nil
+}
+
+func (f *fakeAuthRepository) DeleteRefreshToken(
+	ctx context.Context,
+	tokenHash []byte,
+) error {
+	f.deleteRefreshCalled = true
+	f.deletedTokenHash = append([]byte(nil), tokenHash...)
+
+	return f.deleteRefreshErr
+}
+
+func (f *fakeAuthRepository) GetUserInventory(
+	ctx context.Context,
+	userID int,
+) ([]models.InventoryItem, error) {
+	f.inventoryArg = userID
+
+	if f.inventoryErr != nil {
+		return nil, f.inventoryErr
+	}
+
+	return f.inventory, nil
+}
+
+var _ repositories.UserRepository = (*fakeAuthRepository)(nil)
 
 func (f *fakeAuthRepository) FindUserByEmail(
 	ctx context.Context,

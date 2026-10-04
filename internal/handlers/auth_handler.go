@@ -112,7 +112,7 @@ func (h *Handler) LoginUser(
 			Secure:   false,
 			SameSite: http.SameSiteLaxMode,
 			Expires:  refreshExpiresAt,
-			MaxAge:   int(7 * 24 * time.Hour),
+			MaxAge:   int((7 * 24 * time.Hour).Seconds()),
 		},
 	)
 
@@ -276,7 +276,7 @@ func (h *Handler) IssueJWT(
 			Secure:   false,
 			SameSite: http.SameSiteLaxMode,
 			Expires:  newRefreshExpiresAt,
-			MaxAge:   int(7 * 24 * time.Hour),
+			MaxAge:   int((7 * 24 * time.Hour).Seconds()),
 		},
 	)
 

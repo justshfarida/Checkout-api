@@ -252,20 +252,33 @@ var _ repositories.CartRepository = (*fakeCartRepository)(nil)
 // ======================================================
 
 type fakeOrderRepository struct {
-	createErr   error
-	updateErr   error
-	markPaidErr error
+	createErr error
+	updateErr error
 
-	createCalled   bool
-	updateCalled   bool
-	markPaidCalled bool
+	createCalled bool
+	updateCalled bool
 
+	createdUserID int
 	createdTotal  int
 	createdStatus string
 	createdItems  []models.LineItem
 
 	updatedOrderID int
 	updatedStatus  string
+
+	// GetOrderItems
+	orderItems        []models.LineItem
+	orderItemsErr     error
+	orderItemsOrderID int
+	orderItemsCalled  bool
+
+	// GetOrdersByUserIDOffset / Cursor
+	userOrders       []models.UserOrder
+	userOrdersErr    error
+	listUserID       int
+	listLimit        int
+	listOffset       int
+	listCursorLastID int
 }
 
 func (f *fakeOrderRepository) CreateOrder(
@@ -276,6 +289,7 @@ func (f *fakeOrderRepository) CreateOrder(
 	status string,
 ) (*models.Order, error) {
 	f.createCalled = true
+	f.createdUserID = userID
 	f.createdTotal = total
 	f.createdStatus = status
 	f.createdItems = items
@@ -310,9 +324,21 @@ func (f *fakeOrderRepository) MarkOrderPaid(
 	orderID int,
 	items []models.LineItem,
 ) error {
-	f.markPaidCalled = true
+	return nil
+}
 
-	return f.markPaidErr
+func (f *fakeOrderRepository) GetOrderItems(
+	ctx context.Context,
+	orderID int,
+) ([]models.LineItem, error) {
+	f.orderItemsCalled = true
+	f.orderItemsOrderID = orderID
+
+	if f.orderItemsErr != nil {
+		return nil, f.orderItemsErr
+	}
+
+	return f.orderItems, nil
 }
 
 func (f *fakeOrderRepository) GetOrdersByUserIDOffset(
@@ -321,7 +347,15 @@ func (f *fakeOrderRepository) GetOrdersByUserIDOffset(
 	limit int,
 	offset int,
 ) ([]models.UserOrder, error) {
-	return nil, nil
+	f.listUserID = userID
+	f.listLimit = limit
+	f.listOffset = offset
+
+	if f.userOrdersErr != nil {
+		return nil, f.userOrdersErr
+	}
+
+	return f.userOrders, nil
 }
 
 func (f *fakeOrderRepository) GetOrdersByUserIDCursor(
@@ -330,7 +364,15 @@ func (f *fakeOrderRepository) GetOrdersByUserIDCursor(
 	lastID int,
 	limit int,
 ) ([]models.UserOrder, error) {
-	return nil, nil
+	f.listUserID = userID
+	f.listCursorLastID = lastID
+	f.listLimit = limit
+
+	if f.userOrdersErr != nil {
+		return nil, f.userOrdersErr
+	}
+
+	return f.userOrders, nil
 }
 
 var _ repositories.OrderRepository = (*fakeOrderRepository)(nil)
@@ -387,3 +429,71 @@ func (f *fakeCartWriter) RemoveCartItem(
 }
 
 var _ CartWriter = (*fakeCartWriter)(nil)
+
+// ======================================================
+// FAKE XSOLLA PAYMENT SERVICE (payment token creation)
+// ======================================================
+
+type fakeXsollaPaymentService struct {
+	response *XsollaPaymentResponse
+	err      error
+
+	called  bool
+	userID  int
+	orderID int
+	items   []XsollaItem
+}
+
+func (f *fakeXsollaPaymentService) CreatePayment(
+	ctx context.Context,
+	userID int,
+	orderID int,
+	items []XsollaItem,
+) (*XsollaPaymentResponse, error) {
+	f.called = true
+	f.userID = userID
+	f.orderID = orderID
+	f.items = items
+
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	return f.response, nil
+}
+
+var _ XsollaPaymentService = (*fakeXsollaPaymentService)(nil)
+
+// ======================================================
+// FAKE XSOLLA REPOSITORY (webhook payment processing)
+// ======================================================
+
+type fakeXsollaRepository struct {
+	processed bool
+	err       error
+
+	called        bool
+	transactionID int64
+	orderID       int
+	items         []models.LineItem
+}
+
+func (f *fakeXsollaRepository) ProcessXsollaPayment(
+	ctx context.Context,
+	transactionID int64,
+	orderID int,
+	items []models.LineItem,
+) (bool, error) {
+	f.called = true
+	f.transactionID = transactionID
+	f.orderID = orderID
+	f.items = items
+
+	if f.err != nil {
+		return false, f.err
+	}
+
+	return f.processed, nil
+}
+
+var _ repositories.XsollaRepository = (*fakeXsollaRepository)(nil)

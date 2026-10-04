@@ -39,8 +39,18 @@ func newTestHandler(
 	item ItemService,
 	cart CartService,
 	order OrderService,
-	xsolla XsollaService,
 	token TokenService,
+) *Handler {
+	return newTestHandlerWithXsolla(auth, item, cart, order, token, nil)
+}
+
+func newTestHandlerWithXsolla(
+	auth AuthService,
+	item ItemService,
+	cart CartService,
+	order OrderService,
+	token TokenService,
+	xsolla XsollaService,
 ) *Handler {
 	return NewHandler(
 		auth,
@@ -71,6 +81,22 @@ type fakeAuthService struct {
 
 	savedEmail    string
 	savedPassword []byte
+
+	// UserExists
+	userExists       bool
+	userExistsErr    error
+	userExistsCalled bool
+	userExistsID     int
+
+	// GetUserByID
+	userByID       models.User
+	userByIDErr    error
+	getUserByIDArg int
+
+	// GetUserInventory
+	inventory       []models.InventoryItem
+	inventoryErr    error
+	inventoryUserID int
 }
 
 func (f *fakeAuthService) Authenticate(
@@ -109,6 +135,34 @@ func (f *fakeAuthService) SaveUser(
 	return f.saveUserErr
 }
 
+func (f *fakeAuthService) UserExists(
+	ctx context.Context,
+	id int,
+) (bool, error) {
+	f.userExistsCalled = true
+	f.userExistsID = id
+
+	return f.userExists, f.userExistsErr
+}
+
+func (f *fakeAuthService) GetUserByID(
+	ctx context.Context,
+	id int,
+) (models.User, error) {
+	f.getUserByIDArg = id
+
+	return f.userByID, f.userByIDErr
+}
+
+func (f *fakeAuthService) GetUserInventory(
+	ctx context.Context,
+	userID int,
+) ([]models.InventoryItem, error) {
+	f.inventoryUserID = userID
+
+	return f.inventory, f.inventoryErr
+}
+
 var _ AuthService = (*fakeAuthService)(nil)
 
 // -------------------------------------------------------
@@ -136,6 +190,11 @@ type fakeTokenService struct {
 	refreshUserID int
 
 	oldRefreshToken string
+
+	// Logout
+	logoutErr    error
+	logoutCalled bool
+	logoutToken  string
 }
 
 func (f *fakeTokenService) CreateAccessToken(
@@ -198,6 +257,16 @@ func (f *fakeTokenService) RotateRefreshToken(
 		f.rotatedToken,
 		f.rotateExpiresAt,
 		nil
+}
+
+func (f *fakeTokenService) Logout(
+	ctx context.Context,
+	refreshToken string,
+) error {
+	f.logoutCalled = true
+	f.logoutToken = refreshToken
+
+	return f.logoutErr
 }
 
 var _ TokenService = (*fakeTokenService)(nil)
@@ -363,6 +432,18 @@ type fakeOrderService struct {
 	offsetCalled bool
 	cursorCalled bool
 	userID       int
+
+	// ProcessXsollaPayment
+	processErr           error
+	processCalled        bool
+	processOrderID       int
+	processTransactionID int64
+
+	// UpdateOrderStatus
+	updateErr     error
+	updateCalled  bool
+	updateOrderID int
+	updateStatus  string
 }
 
 func (f *fakeOrderService) CreateOrder(
@@ -411,4 +492,62 @@ func (f *fakeOrderService) GetOrdersByUserIDCursor(
 		f.cursorErr
 }
 
+func (f *fakeOrderService) ProcessXsollaPayment(
+	ctx context.Context,
+	orderID int,
+	transactionID int64,
+) error {
+	f.processCalled = true
+	f.processOrderID = orderID
+	f.processTransactionID = transactionID
+
+	return f.processErr
+}
+
+func (f *fakeOrderService) UpdateOrderStatus(
+	ctx context.Context,
+	orderID int,
+	status string,
+) error {
+	f.updateCalled = true
+	f.updateOrderID = orderID
+	f.updateStatus = status
+
+	return f.updateErr
+}
+
 var _ OrderService = (*fakeOrderService)(nil)
+
+// -------------------------------------------------------
+// XSOLLA SERVICE FAKE
+// -------------------------------------------------------
+
+type fakeXsollaService struct {
+	signatureValid bool
+
+	verifyCalled bool
+	verifiedBody []byte
+	verifiedAuth string
+}
+
+func (f *fakeXsollaService) CreatePayment(
+	ctx context.Context,
+	userID int,
+	orderID int,
+	items []services.XsollaItem,
+) (*services.XsollaPaymentResponse, error) {
+	return nil, nil
+}
+
+func (f *fakeXsollaService) VerifyXsollaSignature(
+	rawBody []byte,
+	authHeader string,
+) bool {
+	f.verifyCalled = true
+	f.verifiedBody = append([]byte(nil), rawBody...)
+	f.verifiedAuth = authHeader
+
+	return f.signatureValid
+}
+
+var _ XsollaService = (*fakeXsollaService)(nil)

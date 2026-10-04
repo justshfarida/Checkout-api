@@ -95,7 +95,7 @@ func (h *Handler) handleXsollaUserValidation(w http.ResponseWriter, r *http.Requ
 	}
 	result, err := h.authService.UserExists(r.Context(), userId)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "INTERNAL_ERROR", "failed to validate user")
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to validate user")
 		return
 	}
 	if !result {
