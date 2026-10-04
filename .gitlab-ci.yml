@@ -6,14 +6,14 @@ stages:
 
 format:
   stage: format
-  image: golang:1.25
+  image: golang:1.26.8
 
   script:
     - test -z "$(gofmt -l .)"
 
 # unit_tests:
 #   stage: test
-#   image: golang:1.25
+#   image: golang:1.26.8
 
 #   script:
 #     - go test -race ./...
@@ -33,7 +33,7 @@ format:
 
 build:
   stage: build
-  image: golang:1.25
+  image: golang:1.26.8
 
   script:
     - go build ./...
