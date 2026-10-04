@@ -1,6 +1,6 @@
 stages:
   - format
-  # - test
+  - test
   - build
   - docker
 
@@ -11,25 +11,25 @@ format:
   script:
     - test -z "$(gofmt -l .)"
 
-# unit_tests:
-#   stage: test
-#   image: golang:1.26.8
+unit_tests:
+  stage: test
+  image: golang:1.26.8
 
-#   script:
-#     - go test -race ./...
-#     - go test -coverprofile=coverage.out ./internal/services
-#     - go tool cover -func=coverage.out
-#     - |
-#       COVERAGE=$(go tool cover -func=coverage.out | awk '/total:/ {print $3}' | tr -d '%')
-#       echo "Business logic coverage: ${COVERAGE}%"
-#       awk "BEGIN { if ($COVERAGE < 60) exit 1 }"
+  script:
+    - go test -race ./...
+    - go test -coverprofile=coverage.out ./internal/services
+    - go tool cover -func=coverage.out
+    - |
+      COVERAGE=$(go tool cover -func=coverage.out | awk '/total:/ {print $3}' | tr -d '%')
+      echo "Business logic coverage: ${COVERAGE}%"
+      awk "BEGIN { if ($COVERAGE < 60) exit 1 }"
 
-#   coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
 
-#   artifacts:
-#     when: always
-#     paths:
-#       - coverage.out
+  artifacts:
+    when: always
+    paths:
+      - coverage.out
 
 build:
   stage: build
