@@ -115,6 +115,9 @@ type IdempotencyRecord struct {
 	Response   []byte
 	StatusCode int
 	Expiry     time.Time
+	// InProgress is true while the first request with this key is still
+	// running; a duplicate arriving meanwhile gets 409 Conflict.
+	InProgress bool
 }
 
 func NewHandler(
