@@ -7,11 +7,28 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+)
+
+const (
+	// paymentAttemptTimeout limits one HTTP call to Xsolla. Three attempts
+	// plus backoff stay under the server's 15s WriteTimeout.
+	paymentAttemptTimeout = 4 * time.Second
+
+	// maxPaymentAttempts is the total number of tries (1 call + 2 retries).
+	maxPaymentAttempts = 3
+
+	// defaultRetryBaseDelay is the base for exponential backoff with jitter:
+	// attempt 0 waits 0–100ms, attempt 1 waits 0–200ms.
+	defaultRetryBaseDelay = 100 * time.Millisecond
 )
 
 type XsollaService struct {
@@ -19,6 +36,7 @@ type XsollaService struct {
 	merchantID    string
 	apiKey        string
 	client        *http.Client
+	retryBase     time.Duration
 	webhookSecret string
 	// returnURL is where Pay Station sends the user after payment. It is set
 	// per environment so local and minikube each redirect back to themselves.
@@ -38,7 +56,8 @@ func NewXsollaService(
 		apiKey:        apiKey,
 		webhookSecret: webhookSecret,
 		returnURL:     returnURL,
-		client:        &http.Client{},
+		client:        &http.Client{Timeout: paymentAttemptTimeout},
+		retryBase:     defaultRetryBaseDelay,
 	}
 }
 
@@ -105,11 +124,72 @@ func (s *XsollaService) CreatePayment(
 		return nil, err
 	}
 
+	var lastErr error
+
+	for attempt := 0; attempt < maxPaymentAttempts; attempt++ {
+		result, err := s.sendPaymentRequest(ctx, data)
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+
+		// Permanent failures (4xx, bad JSON) will not succeed on retry.
+		var retryable *retryableError
+		if !errors.As(err, &retryable) {
+			return nil, err
+		}
+
+		if attempt == maxPaymentAttempts-1 {
+			break
+		}
+
+		// Exponential backoff with full jitter: a random wait in
+		// [0, base*2^attempt) so many clients don't retry in lockstep.
+		backoff := time.Duration(rand.Int63n(int64(s.retryBase << attempt)))
+
+		slog.WarnContext(ctx, "Retrying payment request",
+			"order_id", orderID,
+			"attempt", attempt+1,
+			"backoff_ms", backoff.Milliseconds(),
+			"error", err.Error(),
+		)
+
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			// The client gave up or the request deadline passed: stop retrying.
+			return nil, ctx.Err()
+		}
+	}
+
+	return nil, fmt.Errorf(
+		"payment request failed after %d attempts: %w",
+		maxPaymentAttempts,
+		lastErr,
+	)
+}
+
+// retryableError marks a failure that may succeed if tried again:
+// network errors, timeouts, HTTP 429 and 5xx.
+type retryableError struct {
+	err error
+}
+
+func (e *retryableError) Error() string { return e.err.Error() }
+func (e *retryableError) Unwrap() error { return e.err }
+
+// sendPaymentRequest performs exactly one HTTP call to Xsolla.
+func (s *XsollaService) sendPaymentRequest(
+	ctx context.Context,
+	data []byte,
+) (*XsollaPaymentResponse, error) {
 	url := fmt.Sprintf(
 		"https://store.xsolla.com/api/v3/project/%s/admin/payment/token",
 		s.projectID,
 	)
 
+	// A new request (and body reader) is needed for every attempt.
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
@@ -125,21 +205,33 @@ func (s *XsollaService) CreatePayment(
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, err
+		// If our own context ended, retrying is pointless.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		// Network error or per-attempt timeout: worth another try.
+		return nil, &retryableError{err: err}
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, &retryableError{err: err}
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf(
+		statusErr := fmt.Errorf(
 			"xsolla returned %s: %s",
 			resp.Status,
 			string(responseBody),
 		)
+
+		if resp.StatusCode == http.StatusTooManyRequests ||
+			resp.StatusCode >= 500 {
+			return nil, &retryableError{err: statusErr}
+		}
+
+		return nil, statusErr
 	}
 
 	var result XsollaPaymentResponse
@@ -150,6 +242,7 @@ func (s *XsollaService) CreatePayment(
 
 	return &result, nil
 }
+
 func (s *XsollaService) VerifyXsollaSignature(rawBody []byte, authHeader string) bool {
 	const prefix = "Signature "
 
