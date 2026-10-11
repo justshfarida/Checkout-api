@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"time"
 
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
@@ -14,9 +15,15 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// defaultListQueryTimeout bounds how long listing items may wait on the
+// database. A slow or stuck query fails fast instead of holding the request
+// (and a DB connection) until the server's WriteTimeout.
+const defaultListQueryTimeout = 2 * time.Second
+
 type ItemService struct {
 	repo         repositories.ItemRepository
 	listRequests metric.Int64Counter
+	queryTimeout time.Duration
 }
 type ItemOffsetResult struct {
 	Items  []*models.Item `json:"items"`
@@ -48,6 +55,7 @@ func NewItemService(
 	return &ItemService{
 		repo:         repo,
 		listRequests: counter,
+		queryTimeout: defaultListQueryTimeout,
 	}
 }
 func (s *ItemService) GetItem(
@@ -96,6 +104,11 @@ func (s *ItemService) GetItemsOffset(
 		attribute.Int("pagination.limit", limit),
 		attribute.Int("pagination.offset", offset),
 	)
+
+	// Both queries below (items + count) share one deadline. pgx cancels a
+	// query when its context expires, returning context.DeadlineExceeded.
+	ctx, cancel := context.WithTimeout(ctx, s.queryTimeout)
+	defer cancel()
 
 	items, err := s.repo.GetItemsOffset(ctx, limit, offset)
 	if err != nil {

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -46,6 +47,25 @@ func handleError(
 	err error,
 ) {
 	switch {
+
+	case errors.Is(
+		err,
+		context.DeadlineExceeded,
+	):
+		// A dependency (e.g. the database) did not answer in time.
+		slog.WarnContext(
+			r.Context(),
+			"Request timed out",
+			"error", err.Error(),
+			"method", r.Method,
+			"path", r.URL.Path,
+		)
+		writeError(
+			w,
+			http.StatusGatewayTimeout,
+			"TIMEOUT",
+			"The request took too long, please try again",
+		)
 
 	case errors.Is(
 		err,
