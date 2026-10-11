@@ -69,6 +69,17 @@ func handleError(
 
 	case errors.Is(
 		err,
+		services.ErrPaymentProviderUnavailable,
+	):
+		writeError(
+			w,
+			http.StatusServiceUnavailable,
+			"PAYMENT_UNAVAILABLE",
+			"Payments are temporarily unavailable, please try again shortly",
+		)
+
+	case errors.Is(
+		err,
 		services.ErrItemNotFound,
 	):
 		writeError(

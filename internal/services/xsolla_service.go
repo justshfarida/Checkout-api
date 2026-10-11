@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"checkout-api/internal/resilience"
 )
 
 const (
@@ -29,6 +31,11 @@ const (
 	// defaultRetryBaseDelay is the base for exponential backoff with jitter:
 	// attempt 0 waits 0–100ms, attempt 1 waits 0–200ms.
 	defaultRetryBaseDelay = 100 * time.Millisecond
+
+	// After this many consecutive failed payment calls (each already
+	// retried), stop calling Xsolla for paymentBreakerCooldown.
+	paymentBreakerThreshold = 5
+	paymentBreakerCooldown  = 30 * time.Second
 )
 
 type XsollaService struct {
@@ -37,6 +44,7 @@ type XsollaService struct {
 	apiKey        string
 	client        *http.Client
 	retryBase     time.Duration
+	breaker       *resilience.Breaker
 	webhookSecret string
 	// returnURL is where Pay Station sends the user after payment. It is set
 	// per environment so local and minikube each redirect back to themselves.
@@ -58,6 +66,11 @@ func NewXsollaService(
 		returnURL:     returnURL,
 		client:        &http.Client{Timeout: paymentAttemptTimeout},
 		retryBase:     defaultRetryBaseDelay,
+		breaker: resilience.NewBreaker(
+			"xsolla-payment",
+			paymentBreakerThreshold,
+			paymentBreakerCooldown,
+		),
 	}
 }
 
@@ -97,7 +110,47 @@ type XsollaPaymentResponse struct {
 	OrderID int    `json:"order_id"`
 }
 
+// CreatePayment requests a Pay Station token from Xsolla, protected by a
+// circuit breaker (outer) and retries with jitter (inner):
+//
+//	breaker.Allow -> up to 3 attempts with backoff -> breaker.Success/Failure
+//
+// When Xsolla keeps failing, the breaker opens and calls fail fast with
+// ErrPaymentProviderUnavailable instead of each request waiting on retries.
 func (s *XsollaService) CreatePayment(
+	ctx context.Context,
+	userID int,
+	orderID int,
+	items []XsollaItem,
+) (*XsollaPaymentResponse, error) {
+	if err := s.breaker.Allow(); err != nil {
+		slog.WarnContext(ctx, "Payment request rejected: circuit breaker open",
+			"order_id", orderID,
+		)
+		return nil, fmt.Errorf("%w: %v", ErrPaymentProviderUnavailable, err)
+	}
+
+	result, err := s.createPaymentWithRetry(ctx, userID, orderID, items)
+
+	var retryable *retryableError
+	switch {
+	case err == nil:
+		s.breaker.Success()
+	case ctx.Err() != nil:
+		// The caller gave up; this says nothing about Xsolla's health.
+		s.breaker.Cancel()
+	case errors.As(err, &retryable):
+		// Network errors, timeouts, 429/5xx even after retries: Xsolla is unhealthy.
+		s.breaker.Failure()
+	default:
+		// 4xx or bad input: Xsolla answered, so it is healthy.
+		s.breaker.Success()
+	}
+
+	return result, err
+}
+
+func (s *XsollaService) createPaymentWithRetry(
 	ctx context.Context,
 	userID int,
 	orderID int,

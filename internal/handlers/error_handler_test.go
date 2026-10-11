@@ -41,6 +41,17 @@ func TestHandleError(t *testing.T) {
 			mustNotContain: "query items",
 		},
 		{
+			name: "payment provider unavailable returns 503",
+
+			err: fmt.Errorf("create payment: %w", services.ErrPaymentProviderUnavailable),
+
+			wantStatus: http.StatusServiceUnavailable,
+
+			wantCode: "PAYMENT_UNAVAILABLE",
+
+			wantMessage: "Payments are temporarily unavailable, please try again shortly",
+		},
+		{
 			name: "item not found returns 404",
 
 			err: services.ErrItemNotFound,
