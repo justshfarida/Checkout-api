@@ -5,6 +5,7 @@ import (
 	"checkout-api/internal/repositories"
 	"checkout-api/internal/validation"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 )
@@ -322,4 +323,22 @@ func (s *OrderService) ProcessXsollaPayment(
 	}
 
 	return nil
+}
+
+// GetOrderForUser returns the caller's own order. userID always comes from
+// the verified JWT, never from the request, and the repository filters by
+// it, so a user can't read another user's order by changing the ID.
+func (s *OrderService) GetOrderForUser(
+	ctx context.Context,
+	orderID int,
+	userID int,
+) (*models.UserOrder, error) {
+	order, err := s.repo.GetOrderForUser(ctx, orderID, userID)
+	if errors.Is(err, repositories.ErrOrderNotFound) {
+		return nil, ErrOrderNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return order, nil
 }

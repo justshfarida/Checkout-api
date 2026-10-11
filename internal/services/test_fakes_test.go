@@ -272,6 +272,12 @@ type fakeOrderRepository struct {
 	orderItemsOrderID int
 	orderItemsCalled  bool
 
+	// GetOrderForUser
+	orderForUser       *models.UserOrder
+	orderForUserErr    error
+	orderForUserID     int
+	orderForUserUserID int
+
 	// GetOrdersByUserIDOffset / Cursor
 	userOrders       []models.UserOrder
 	userOrdersErr    error
@@ -373,6 +379,16 @@ func (f *fakeOrderRepository) GetOrdersByUserIDCursor(
 	}
 
 	return f.userOrders, nil
+}
+
+func (f *fakeOrderRepository) GetOrderForUser(
+	ctx context.Context,
+	orderID int,
+	userID int,
+) (*models.UserOrder, error) {
+	f.orderForUserID = orderID
+	f.orderForUserUserID = userID
+	return f.orderForUser, f.orderForUserErr
 }
 
 var _ repositories.OrderRepository = (*fakeOrderRepository)(nil)

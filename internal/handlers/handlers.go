@@ -91,6 +91,7 @@ type OrderService interface {
 	CreateOrder(ctx context.Context, userID int) (*services.CreateOrderResult, error)
 	GetOrdersByUserIDOffset(ctx context.Context, userID int, limit int, offset int) (services.OrderOffsetResult, error)
 	GetOrdersByUserIDCursor(ctx context.Context, userID int, rawCursor string, limit int) (services.OrderCursorResult, error)
+	GetOrderForUser(ctx context.Context, orderID int, userID int) (*models.UserOrder, error)
 	ProcessXsollaPayment(ctx context.Context, orderID int, transactionID int64) error
 	UpdateOrderStatus(ctx context.Context, orderID int, status string) error
 }
@@ -206,6 +207,10 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.Handle(
 		"GET /user/orders",
 		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserOrders), h.jwtSecret),
+	)
+	mux.Handle(
+		"GET /user/orders/{order_id}",
+		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserOrder), h.jwtSecret),
 	)
 	mux.Handle(
 		"GET /user/orders/cursor",

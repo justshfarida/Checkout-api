@@ -582,3 +582,50 @@ func scanOrders(
 
 	return orders, nil
 }
+
+// GetOrderForUser loads one order with its items. Ownership is part of the
+// WHERE clause (id AND user_id), not a check added afterwards: the database
+// simply never returns another user's order, so "not found" and "not yours"
+// look identical and nobody can probe which order IDs exist.
+func (r *PostgresRepository) GetOrderForUser(
+	ctx context.Context,
+	orderID int,
+	userID int,
+) (*models.UserOrder, error) {
+	rows, err := r.pool.Query(
+		ctx,
+		`
+		SELECT
+			o.id,
+			o.user_id,
+			o.total,
+			o.status,
+			li.item_id,
+			i.name,
+			li.price,
+			li.quantity
+		FROM orders o
+		LEFT JOIN line_items li
+			ON li.order_id = o.id
+		LEFT JOIN items i
+			ON i.id = li.item_id
+		WHERE o.id = $1 AND o.user_id = $2
+		ORDER BY li.item_id
+		`,
+		orderID,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get order: %w", err)
+	}
+	defer rows.Close()
+
+	orders, err := scanOrders(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(orders) == 0 {
+		return nil, repositories.ErrOrderNotFound
+	}
+	return &orders[0], nil
+}

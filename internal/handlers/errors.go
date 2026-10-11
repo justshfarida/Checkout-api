@@ -80,6 +80,18 @@ func handleError(
 
 	case errors.Is(
 		err,
+		services.ErrOrderNotFound,
+	):
+		// Also used for "exists but belongs to someone else", on purpose.
+		writeError(
+			w,
+			http.StatusNotFound,
+			"ORDER_NOT_FOUND",
+			"Order was not found",
+		)
+
+	case errors.Is(
+		err,
 		services.ErrItemNotFound,
 	):
 		writeError(

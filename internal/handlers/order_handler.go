@@ -333,3 +333,36 @@ func mapUserOrderResponse(
 		Status: order.Status,
 	}
 }
+
+// GetUserOrder godoc
+// @Summary Get one of my orders
+// @Description Returns an order of the logged-in user. Another user's order gives 404, the same as a missing one.
+// @Tags orders
+// @Produce json
+// @Security BearerAuth
+// @Param order_id path int true "Order ID"
+// @Success 200 {object} models.UserOrder
+// @Failure 401 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Router /user/orders/{order_id} [get]
+func (h *Handler) GetUserOrder(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middlewares.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+		return
+	}
+
+	orderID, err := strconv.Atoi(r.PathValue("order_id"))
+	if err != nil || orderID <= 0 {
+		writeError(w, http.StatusNotFound, "ORDER_NOT_FOUND", "Order was not found")
+		return
+	}
+
+	order, err := h.orderService.GetOrderForUser(r.Context(), orderID, userID)
+	if err != nil {
+		handleError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, order)
+}
