@@ -4,6 +4,7 @@ stages:
   - test
   - build
   - docker
+  - scan
 
 format:
   stage: format
@@ -83,3 +84,17 @@ docker:
     - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE:latest"
     - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
     - docker push "$CI_REGISTRY_IMAGE:latest"
+
+# Scan the image we just pushed: OS packages, the Go binary, misconfig.
+# Fails the pipeline on any CRITICAL vulnerability.
+trivy:
+  stage: scan
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+  script:
+    - trivy image --exit-code 1 --severity CRITICAL --no-progress "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - trivy image --exit-code 0 --severity HIGH --no-progress "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"   # report only

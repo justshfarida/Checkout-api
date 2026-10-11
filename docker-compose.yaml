@@ -4,6 +4,9 @@ services:
   app:
     build: .
     container_name: farida-checkout-app
+    # Secrets come from .env at runtime; the image itself contains none.
+    env_file:
+      - .env
     ports:
       - "8080:8080"
     environment:

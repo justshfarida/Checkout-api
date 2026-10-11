@@ -44,6 +44,10 @@ func main() {
 	xsollaAPIKey := mustGetEnv("XSOLLA_API_KEY")
 	xsollaWebhookSecret := mustGetEnv("XSOLLA_WEBHOOK_SECRET")
 
+	if err := validateJWTSecret(jwtSecret); err != nil {
+		log.Fatal(err)
+	}
+
 	jwtSecretBytes := []byte(jwtSecret)
 	ctx := context.Background()
 

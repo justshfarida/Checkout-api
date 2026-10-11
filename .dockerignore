@@ -1,0 +1,15 @@
+# Never send these into the Docker build context (and so never into an image).
+.git
+.env
+.env.*
+*.pem
+*.key
+k8s/base/secret.yaml
+
+# Build/test leftovers and things the image doesn't need.
+*.exe
+checkout-api
+coverage.out
+loadtest/
+.idea/
+.vscode/
