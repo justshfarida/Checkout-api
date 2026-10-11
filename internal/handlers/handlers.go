@@ -109,6 +109,9 @@ type Handler struct {
 	validate         *validator.Validate
 	idempotencyMu    sync.Mutex
 	idempotencyCache map[string]*IdempotencyRecord
+	// secureCookies sets the Secure flag on the refresh-token cookie.
+	// True by default (fail closed); only local plain-HTTP dev turns it off.
+	secureCookies bool
 }
 
 type IdempotencyRecord struct {
@@ -140,7 +143,14 @@ func NewHandler(
 		jwtSecret:        jwtSecret,
 		validate:         validator.New(),
 		idempotencyCache: make(map[string]*IdempotencyRecord),
+		secureCookies:    true,
 	}
+}
+
+// SetSecureCookies controls the Secure flag on auth cookies. Keep it true
+// everywhere except local development over plain HTTP.
+func (h *Handler) SetSecureCookies(secure bool) {
+	h.secureCookies = secure
 }
 
 func (h *Handler) Routes() *http.ServeMux {

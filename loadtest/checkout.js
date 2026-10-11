@@ -6,10 +6,15 @@
 // Optional:
 //   -e BASE_URL=http://localhost:8080   API address
 //   -e MAX_RPS=1000                     peak requests per second (start low!)
-//   --summary-export=loadtest/results.json
+//   -e SUMMARY_FILE=loadtest/results-checkout.json   where the JSON summary goes
+//
+// Don't use --summary-export with this script: it also writes setup() data,
+// which contains the access token. handleSummary below drops it (gitleaks
+// caught a token committed that way).
 import http from 'k6/http';
 import { check, fail } from 'k6';
 import { uuidv4 } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
+import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.2/index.js';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const MAX_RPS = parseInt(__ENV.MAX_RPS || '1000', 10);
@@ -93,4 +98,14 @@ export default function (data) {
   check(res, {
     'order created (201)': (r) => r.status === 201,
   });
+}
+
+// Write the summary without setup data, so the access token never lands in a
+// file that could be committed.
+export function handleSummary(data) {
+  delete data.setup_data;
+  return {
+    stdout: textSummary(data, { indent: ' ', enableColors: true }),
+    [__ENV.SUMMARY_FILE || 'loadtest/results-checkout.json']: JSON.stringify(data, null, 2),
+  };
 }

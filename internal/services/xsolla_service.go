@@ -3,7 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- Xsolla defines the webhook signature as SHA-1(body + secret); we must match it
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -199,7 +199,7 @@ func (s *XsollaService) createPaymentWithRetry(
 
 		// Exponential backoff with full jitter: a random wait in
 		// [0, base*2^attempt) so many clients don't retry in lockstep.
-		backoff := time.Duration(rand.Int63n(int64(s.retryBase << attempt)))
+		backoff := time.Duration(rand.Int63n(int64(s.retryBase << attempt))) // #nosec G404 -- retry jitter only, not a secret; predictability is harmless
 
 		slog.WarnContext(ctx, "Retrying payment request",
 			"order_id", orderID,
@@ -305,7 +305,7 @@ func (s *XsollaService) VerifyXsollaSignature(rawBody []byte, authHeader string)
 	provided := strings.TrimSpace(
 		strings.TrimPrefix(authHeader, prefix),
 	)
-	h := sha1.New()
+	h := sha1.New() // #nosec G401 -- required by Xsolla's signature spec; compared in constant time below
 	h.Write(rawBody)
 	h.Write([]byte(s.webhookSecret))
 

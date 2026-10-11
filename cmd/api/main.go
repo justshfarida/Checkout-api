@@ -116,6 +116,9 @@ func main() {
 		xsollaService,
 		jwtSecretBytes,
 	)
+	// Refresh cookie is Secure (HTTPS only) unless explicitly disabled for
+	// local development over plain HTTP. Anything but "false" keeps it on.
+	h.SetSecureCookies(os.Getenv("COOKIE_SECURE") != "false")
 
 	mux := h.Routes()
 	mux.HandleFunc("GET /telemetry-test-error", func(w http.ResponseWriter, r *http.Request) {

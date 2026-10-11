@@ -4,14 +4,14 @@
         "id": "d41d8cd98f00b204e9800998ecf8427e",
         "groups": {},
         "checks": {
-                "order created (201)": {
-                    "name": "order created (201)",
-                    "path": "::order created (201)",
-                    "id": "a05b952f2c146311988d50464e0422e5",
-                    "passes": 1861,
-                    "fails": 5788
-                }
-            },
+            "order created (201)": {
+                "name": "order created (201)",
+                "path": "::order created (201)",
+                "id": "a05b952f2c146311988d50464e0422e5",
+                "passes": 1861,
+                "fails": 5788
+            }
+        },
         "name": ""
     },
     "metrics": {
@@ -157,8 +157,5 @@
             "count": 7652,
             "rate": 44.96280452289641
         }
-    },
-    "setup_data": {
-        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5IiwiZXhwIjoxNzkxNzQ1MTUxLCJpYXQiOjE3OTE3NDQyNTF9.VqkuxaJNH4qoGpLFzN_gUQrpnp_K1ok57khDyPD-tCI"
     }
 }
