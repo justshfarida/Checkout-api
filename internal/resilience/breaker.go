@@ -1,4 +1,3 @@
-
 // Package resilience contains small, dependency-free resilience patterns.
 package resilience
 
