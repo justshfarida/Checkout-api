@@ -109,6 +109,8 @@ type Handler struct {
 	validate         *validator.Validate
 	idempotencyMu    sync.Mutex
 	idempotencyCache map[string]*IdempotencyRecord
+	// loginLimiter slows down password guessing on POST /login.
+	loginLimiter *middlewares.RateLimiter
 	// secureCookies sets the Secure flag on the refresh-token cookie.
 	// True by default (fail closed); only local plain-HTTP dev turns it off.
 	secureCookies bool
@@ -122,6 +124,9 @@ type IdempotencyRecord struct {
 	// running; a duplicate arriving meanwhile gets 409 Conflict.
 	InProgress bool
 }
+
+// loginAttemptsPerMinute is how many logins one IP may try per minute.
+const loginAttemptsPerMinute = 10
 
 func NewHandler(
 	authService AuthService,
@@ -144,6 +149,7 @@ func NewHandler(
 		validate:         validator.New(),
 		idempotencyCache: make(map[string]*IdempotencyRecord),
 		secureCookies:    true,
+		loginLimiter:     middlewares.NewRateLimiter(loginAttemptsPerMinute, time.Minute),
 	}
 }
 
@@ -215,7 +221,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /items/{item_id}", h.GetItemByID)
 
 	mux.HandleFunc("POST /signup", h.CreateUser)
-	mux.HandleFunc("POST /login", h.LoginUser)
+	mux.Handle("POST /login", h.loginLimiter.Middleware(http.HandlerFunc(h.LoginUser)))
 	mux.HandleFunc("POST /token", h.IssueJWT)
 	mux.HandleFunc("POST /logout", h.Logout)
 	return mux

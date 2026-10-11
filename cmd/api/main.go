@@ -134,7 +134,7 @@ func main() {
 	// WithRecover sits inside otelhttp, so a recovered panic is still recorded
 	// on the request's span (status 500) and its log carries the trace ID.
 	instrumentedHandler := otelhttp.NewHandler(
-		middlewares.WithRecover(middlewares.CORS(mux, frontendURL)),
+		middlewares.WithRecover(middlewares.SecurityHeaders(middlewares.CORS(mux, frontendURL))),
 		"http.server",
 		otelhttp.WithFilter(func(r *http.Request) bool {
 			return r.URL.Path != "/health"

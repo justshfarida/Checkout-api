@@ -37,9 +37,15 @@ type XsollaWebhookItem struct {
 
 func (h *Handler) XsollaWebhook(w http.ResponseWriter, r *http.Request) {
 
-	body, err := io.ReadAll(r.Body) //why readall
+	// ReadAll (not a JSON decoder): the signature is computed over the exact
+	// raw bytes. MaxBytesReader caps it at 1 MB like every other body.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 
 	if err != nil {
+		if isBodyTooLarge(err) {
+			writePayloadTooLarge(w)
+			return
+		}
 		writeError(w, http.StatusBadRequest, "INVALID REQUEST BODY", "failed to read request body")
 		return
 	}

@@ -4,7 +4,6 @@ import (
 	"checkout-api/internal/middlewares"
 	"checkout-api/internal/services"
 	"checkout-api/internal/validation"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -29,16 +28,7 @@ func (h *Handler) LoginUser(
 ) {
 	var req AuthRequest
 
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-
-	if err := dec.Decode(&req); err != nil {
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"INVALID_JSON",
-			"Invalid request body",
-		)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -131,16 +121,7 @@ func (h *Handler) CreateUser(
 ) {
 	var req AuthRequest
 
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-
-	if err := dec.Decode(&req); err != nil {
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"INVALID_JSON",
-			"Invalid request body",
-		)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
