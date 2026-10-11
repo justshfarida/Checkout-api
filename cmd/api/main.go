@@ -121,10 +121,17 @@ func main() {
 	mux.HandleFunc("GET /telemetry-test-error", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Intentional telemetry test error", http.StatusInternalServerError)
 	})
+	// Demo endpoint for the panic & recover pattern: the panic is caught by
+	// WithRecover, the client gets a 500, and the server keeps running.
+	mux.HandleFunc("GET /telemetry-test-panic", func(w http.ResponseWriter, r *http.Request) {
+		panic("intentional test panic")
+	})
 
 	//every request gets a span, (method, route,  status)
+	// WithRecover sits inside otelhttp, so a recovered panic is still recorded
+	// on the request's span (status 500) and its log carries the trace ID.
 	instrumentedHandler := otelhttp.NewHandler(
-		middlewares.CORS(mux, frontendURL),
+		middlewares.WithRecover(middlewares.CORS(mux, frontendURL)),
 		"http.server",
 		otelhttp.WithFilter(func(r *http.Request) bool {
 			return r.URL.Path != "/health"
