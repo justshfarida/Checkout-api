@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"checkout-api/internal/middlewares"
@@ -44,9 +45,18 @@ func (h *Handler) CreateOrder(
 		return
 	}
 
+	// Keys are scoped per user: the same key sent by another user is a
+	// different request and must never replay someone else's order.
+	cacheKey := strconv.Itoa(userID) + ":" + idempotencyKey
+
+	// Hold the lock for the whole request so concurrent retries with the
+	// same key can't create duplicate orders.
+	h.idempotencyMu.Lock()
+	defer h.idempotencyMu.Unlock()
+
 	// Return cached response for the same request.
 	if record, exists :=
-		h.idempotencyCache[idempotencyKey]; exists {
+		h.idempotencyCache[cacheKey]; exists {
 
 		if time.Now().Before(record.Expiry) {
 			w.Header().
@@ -69,7 +79,7 @@ func (h *Handler) CreateOrder(
 
 		delete(
 			h.idempotencyCache,
-			idempotencyKey,
+			cacheKey,
 		)
 	}
 
@@ -80,10 +90,7 @@ func (h *Handler) CreateOrder(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -104,14 +111,11 @@ func (h *Handler) CreateOrder(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
-	h.idempotencyCache[idempotencyKey] =
+	h.idempotencyCache[cacheKey] =
 		&IdempotencyRecord{
 			Response:   responseBody,
 			StatusCode: statusCode,
@@ -199,10 +203,7 @@ func (h *Handler) GetUserOrders(
 			)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -283,10 +284,7 @@ func (h *Handler) GetUserOrdersCursor(
 			)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 

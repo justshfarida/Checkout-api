@@ -12,6 +12,9 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: checkout
+      OTEL_SERVICE_NAME: checkout-api
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev,service.version=1.0.0
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     depends_on:
         db:
           condition: service_healthy
@@ -34,5 +37,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  otel-collector:
+      image: otel/opentelemetry-collector-contrib:0.147.0
+      #tells the Collector to load that file when it starts.
+      command: ["--config=/etc/otelcol-contrib/config.yaml"]
+      environment:
+        DD_API_KEY: ${DD_API_KEY:?Set DD_API_KEY in .env}
+        DD_SITE: ${DD_SITE:-datadoghq.com}
+      volumes:
+         #This makes the file on your computer available inside the container:
+        - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro 
+      restart: unless-stopped
 volumes:
   postgres_data:

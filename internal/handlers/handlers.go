@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"checkout-api/internal/middlewares"
@@ -28,12 +29,22 @@ type AuthService interface {
 		email string,
 		password []byte,
 	) (models.User, error)
+
 	UserExists(
 		ctx context.Context,
 		id int,
 	) (bool, error)
-}
 
+	GetUserByID(
+		ctx context.Context,
+		id int,
+	) (models.User, error)
+
+	GetUserInventory(
+		ctx context.Context,
+		userID int,
+	) ([]models.InventoryItem, error)
+}
 type TokenService interface {
 	CreateAccessToken(
 		userID int,
@@ -96,6 +107,7 @@ type Handler struct {
 	xsollaService    XsollaService
 	jwtSecret        []byte
 	validate         *validator.Validate
+	idempotencyMu    sync.Mutex
 	idempotencyCache map[string]*IdempotencyRecord
 }
 
@@ -137,7 +149,20 @@ func (h *Handler) Routes() *http.ServeMux {
 		"GET /swagger/",
 		httpSwagger.WrapHandler,
 	)
-
+	mux.Handle(
+		"GET /user/me",
+		middlewares.AuthMiddleware(
+			http.HandlerFunc(h.GetCurrentUser),
+			h.jwtSecret,
+		),
+	)
+	mux.Handle(
+		"GET /user/inventory",
+		middlewares.AuthMiddleware(
+			http.HandlerFunc(h.GetUserInventory),
+			h.jwtSecret,
+		),
+	)
 	mux.Handle(
 		"GET /user/cart",
 		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserCart), h.jwtSecret),

@@ -246,11 +246,12 @@ func TestCartService_UpsertCartItem(
 		},
 		{
 			// B
-			name: "quantity equal to stock succeeds",
+			name: "merch quantity equal to stock succeeds",
 
 			item: &models.Item{
-				ID:    1,
-				Stock: 5,
+				ID:       1,
+				Stock:    5,
+				ItemType: "merch",
 			},
 
 			quantity: 5,
@@ -259,11 +260,12 @@ func TestCartService_UpsertCartItem(
 		},
 		{
 			// B + I
-			name: "quantity greater than stock returns insufficient stock",
+			name: "merch quantity greater than stock returns insufficient stock",
 
 			item: &models.Item{
-				ID:    1,
-				Stock: 5,
+				ID:       1,
+				Stock:    5,
+				ItemType: "merch",
 			},
 
 			quantity: 6,
@@ -271,6 +273,20 @@ func TestCartService_UpsertCartItem(
 			wantErr: validation.ErrInsufficientStock,
 
 			wantUpsertCalled: false,
+		},
+		{
+			// B: only merch is stock-limited; currency packs are unlimited
+			name: "non-merch item quantity above stock is allowed",
+
+			item: &models.Item{
+				ID:       1,
+				Stock:    0,
+				ItemType: "currency",
+			},
+
+			quantity: 100,
+
+			wantUpsertCalled: true,
 		},
 		{
 			// Z-ish / missing dependency result
@@ -638,10 +654,11 @@ func TestCartService_Upsert_DoesNotWrite_WhenStockIsInsufficient(t *testing.T) {
 	itemRepo := &fakeItemRepository{
 		items: map[int]*models.Item{
 			1: {
-				ID:    1,
-				Name:  "Keyboard",
-				Price: 5000,
-				Stock: 2,
+				ID:       1,
+				Name:     "Keyboard",
+				Price:    5000,
+				Stock:    2,
+				ItemType: "merch",
 			},
 		},
 	}
@@ -676,4 +693,66 @@ func TestCartService_Upsert_DoesNotWrite_WhenStockIsInsufficient(t *testing.T) {
 			"expected UpsertCartItem NOT to be called when stock is insufficient",
 		)
 	}
+}
+
+func TestCartService_GetUserCartCursor(t *testing.T) {
+	cartItemsN := func(n int) []models.CartItem {
+		out := make([]models.CartItem, n)
+		for i := range out {
+			out[i] = models.CartItem{ID: i + 1}
+		}
+		return out
+	}
+
+	t.Run("extra row means another page: trims and returns cursor of last item", func(t *testing.T) {
+		repo := &fakeCartRepository{cursorItems: cartItemsN(3), total: 9}
+		service := NewCartService(repo, &fakeCartWriter{}, &fakeItemRepository{})
+
+		got, err := service.GetUserCartCursor(context.Background(), 1, "", 2)
+		if err != nil {
+			t.Fatalf("error = %v", err)
+		}
+		if repo.cursorLimit != 3 {
+			t.Errorf("repository limit = %d, want 3 (limit+1)", repo.cursorLimit)
+		}
+		if len(got.Items) != 2 || !got.HasMore || got.Total != 9 {
+			t.Fatalf("got %d items hasMore=%v total=%d, want 2/true/9", len(got.Items), got.HasMore, got.Total)
+		}
+		if lastID, err := DecodeCursor(got.NextCursor); err != nil || lastID != 2 {
+			t.Errorf("next cursor decodes to %d (err %v), want 2", lastID, err)
+		}
+	})
+
+	t.Run("last page has no cursor and passes decoded cursor to repository", func(t *testing.T) {
+		repo := &fakeCartRepository{cursorItems: cartItemsN(1)}
+		service := NewCartService(repo, &fakeCartWriter{}, &fakeItemRepository{})
+
+		got, err := service.GetUserCartCursor(context.Background(), 1, EncodeCursor(8), 2)
+		if err != nil {
+			t.Fatalf("error = %v", err)
+		}
+		if repo.cursorLastID != 8 {
+			t.Errorf("repository lastID = %d, want 8", repo.cursorLastID)
+		}
+		if got.HasMore || got.NextCursor != "" {
+			t.Errorf("hasMore=%v cursor=%q, want false and empty", got.HasMore, got.NextCursor)
+		}
+	})
+
+	t.Run("invalid cursor returns ErrInvalidCursor", func(t *testing.T) {
+		service := NewCartService(&fakeCartRepository{}, &fakeCartWriter{}, &fakeItemRepository{})
+
+		if _, err := service.GetUserCartCursor(context.Background(), 1, "!!", 2); !errors.Is(err, ErrInvalidCursor) {
+			t.Fatalf("error = %v, want ErrInvalidCursor", err)
+		}
+	})
+
+	t.Run("total error is returned", func(t *testing.T) {
+		repo := &fakeCartRepository{cursorItems: cartItemsN(1), totalErr: errFakeDependency}
+		service := NewCartService(repo, &fakeCartWriter{}, &fakeItemRepository{})
+
+		if _, err := service.GetUserCartCursor(context.Background(), 1, "", 2); !errors.Is(err, errFakeDependency) {
+			t.Fatalf("error = %v, want %v", err, errFakeDependency)
+		}
+	})
 }

@@ -20,6 +20,9 @@ type XsollaService struct {
 	apiKey        string
 	client        *http.Client
 	webhookSecret string
+	// returnURL is where Pay Station sends the user after payment. It is set
+	// per environment so local and minikube each redirect back to themselves.
+	returnURL string
 }
 
 func NewXsollaService(
@@ -27,12 +30,14 @@ func NewXsollaService(
 	merchantID string,
 	apiKey string,
 	webhookSecret string,
+	returnURL string,
 ) *XsollaService {
 	return &XsollaService{
 		projectID:     projectID,
 		merchantID:    merchantID,
 		apiKey:        apiKey,
 		webhookSecret: webhookSecret,
+		returnURL:     returnURL,
 		client:        &http.Client{},
 	}
 }
@@ -55,6 +60,12 @@ type xsollaPaymentRequest struct {
 		Items []XsollaItem `json:"items"`
 	} `json:"purchase"`
 	CustomParameters map[string]string `json:"custom_parameters"`
+
+	Settings *xsollaPaymentSettings `json:"settings,omitempty"`
+}
+
+type xsollaPaymentSettings struct {
+	ReturnURL string `json:"return_url,omitempty"`
 }
 
 type XsollaItem struct {
@@ -83,6 +94,10 @@ func (s *XsollaService) CreatePayment(
 	body.Purchase.Items = items
 	body.CustomParameters = map[string]string{
 		"order_id": strconv.Itoa(orderID),
+	}
+
+	if s.returnURL != "" {
+		body.Settings = &xsollaPaymentSettings{ReturnURL: s.returnURL}
 	}
 
 	data, err := json.Marshal(body)
@@ -150,7 +165,7 @@ func (s *XsollaService) VerifyXsollaSignature(rawBody []byte, authHeader string)
 
 	expected := hex.EncodeToString(
 		h.Sum(nil),
-	)
+	) //give me the SHA-1 result as bytes
 
 	return subtle.ConstantTimeCompare(
 		[]byte(strings.ToLower(provided)),

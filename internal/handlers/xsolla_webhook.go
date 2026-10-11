@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 )
@@ -44,11 +44,13 @@ func (h *Handler) XsollaWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.xsollaService.VerifyXsollaSignature(body, r.Header.Get("Authorization")) {
+		slog.WarnContext(r.Context(), "Webhook rejected: invalid signature")
 		writeError(w, http.StatusBadRequest, "INVALID SIGNATURE", "signature mismatch")
 		return
 	}
 	var webhook XsollaWebhook
 	if err := json.Unmarshal(body, &webhook); err != nil {
+		slog.WarnContext(r.Context(), "Webhook rejected: invalid JSON", "error", err.Error())
 		writeError(
 			w,
 			http.StatusBadRequest,
@@ -95,10 +97,15 @@ func (h *Handler) handleXsollaUserValidation(w http.ResponseWriter, r *http.Requ
 	}
 	result, err := h.authService.UserExists(r.Context(), userId)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "INTERNAL_ERROR", "failed to validate user")
+		slog.ErrorContext(r.Context(), "User validation failed",
+			"error", err.Error(),
+			"user_id", userId,
+		)
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to validate user")
 		return
 	}
 	if !result {
+		slog.WarnContext(r.Context(), "User validation: user not found", "user_id", userId)
 		writeError(w, http.StatusBadRequest, "INVALID_USER", "user not found")
 		return
 	}
@@ -125,7 +132,11 @@ func (h *Handler) handleXsollaOrderPaid(
 		transactionID,
 	)
 	if err != nil {
-		fmt.Printf("ProcessXsollaPayment error: %v\n", err)
+		slog.ErrorContext(r.Context(), "Payment processing failed",
+			"error", err.Error(),
+			"order_id", orderID,
+			"transaction_id", transactionID,
+		)
 
 		writeError(
 			w,
@@ -135,6 +146,11 @@ func (h *Handler) handleXsollaOrderPaid(
 		)
 		return
 	}
+
+	slog.InfoContext(r.Context(), "Payment processed",
+		"order_id", orderID,
+		"transaction_id", transactionID,
+	)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -163,6 +179,10 @@ func (h *Handler) handleXsollaOrderCanceled(
 		"canceled",
 	)
 	if err != nil {
+		slog.ErrorContext(r.Context(), "Order cancel failed",
+			"error", err.Error(),
+			"order_id", orderID,
+		)
 		writeError(
 			w,
 			http.StatusInternalServerError,
@@ -171,6 +191,8 @@ func (h *Handler) handleXsollaOrderCanceled(
 		)
 		return
 	}
+
+	slog.InfoContext(r.Context(), "Order canceled", "order_id", orderID)
 
 	w.WriteHeader(http.StatusOK)
 }

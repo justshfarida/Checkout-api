@@ -109,10 +109,7 @@ func (h *Handler) UpsertCartItem(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -186,10 +183,7 @@ func (h *Handler) RemoveCartItem(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -273,10 +267,7 @@ func (h *Handler) GetUserCart(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -292,13 +283,15 @@ func (h *Handler) GetUserCart(
 		items = append(
 			items,
 			CartItemResponse{
-				ID:          item.ID,
-				Name:        item.Name,
-				Description: item.Description,
-				Price:       item.Price,
-				Stock:       item.Stock,
-				CreatedAt:   item.CreatedAt,
-				Quantity:    item.Quantity,
+				ID:           item.ID,
+				Name:         item.Name,
+				Description:  item.Description,
+				Price:        item.Price,
+				Stock:        item.Stock,
+				CreatedAt:    item.CreatedAt,
+				Quantity:     item.Quantity,
+				ItemType:     item.ItemType,
+				CreditAmount: item.CreditAmount,
 			},
 		)
 	}
@@ -376,10 +369,7 @@ func (h *Handler) GetUserCartCursor(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -395,13 +385,15 @@ func (h *Handler) GetUserCartCursor(
 		items = append(
 			items,
 			CartItemResponse{
-				ID:          item.ID,
-				Name:        item.Name,
-				Description: item.Description,
-				Price:       item.Price,
-				Stock:       item.Stock,
-				CreatedAt:   item.CreatedAt,
-				Quantity:    item.Quantity,
+				ID:           item.ID,
+				Name:         item.Name,
+				Description:  item.Description,
+				Price:        item.Price,
+				Stock:        item.Stock,
+				CreatedAt:    item.CreatedAt,
+				Quantity:     item.Quantity,
+				ItemType:     item.ItemType,
+				CreditAmount: item.CreditAmount,
 			},
 		)
 	}

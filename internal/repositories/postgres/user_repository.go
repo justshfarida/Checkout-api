@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"checkout-api/internal/models"
-
 	"checkout-api/internal/repositories"
 
 	"github.com/jackc/pgx/v5"
@@ -25,7 +24,8 @@ func (r *PostgresRepository) FindUserByEmail(
 		SELECT
 			id,
 			email,
-			hash
+			hash,
+			balance
 		FROM users
 		WHERE email = $1
 		`,
@@ -34,7 +34,9 @@ func (r *PostgresRepository) FindUserByEmail(
 		&user.ID,
 		&user.Email,
 		&user.Hash,
+		&user.Balance,
 	)
+
 	if errors.Is(err, pgx.ErrNoRows) {
 		return models.User{}, repositories.ErrUserNotFound
 	}
@@ -216,6 +218,7 @@ func (r *PostgresRepository) RotateRefreshToken(
 
 	return userID, nil
 }
+
 func (r *PostgresRepository) FindUserByID(
 	ctx context.Context,
 	id int,
@@ -225,7 +228,11 @@ func (r *PostgresRepository) FindUserByID(
 	err := r.pool.QueryRow(
 		ctx,
 		`
-		SELECT id, email, hash
+		SELECT
+			id,
+			email,
+			hash,
+			balance
 		FROM users
 		WHERE id = $1
 		`,
@@ -234,6 +241,7 @@ func (r *PostgresRepository) FindUserByID(
 		&user.ID,
 		&user.Email,
 		&user.Hash,
+		&user.Balance,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -259,6 +267,7 @@ func (r *PostgresRepository) DeleteRefreshToken(
 		`,
 		tokenHash,
 	)
+
 	if err != nil {
 		return fmt.Errorf(
 			"failed to delete refresh token: %w",
@@ -267,4 +276,67 @@ func (r *PostgresRepository) DeleteRefreshToken(
 	}
 
 	return nil
+}
+func (r *PostgresRepository) GetUserInventory(
+	ctx context.Context,
+	userID int,
+) ([]models.InventoryItem, error) {
+	rows, err := r.pool.Query(
+		ctx,
+		`
+		SELECT
+			i.id,
+			i.name,
+			i.description,
+			ui.quantity
+		FROM user_inventory ui
+		JOIN items i
+			ON i.id = ui.item_id
+		WHERE ui.user_id = $1
+		ORDER BY i.id
+		`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to get user inventory: %w",
+			err,
+		)
+	}
+	defer rows.Close()
+
+	inventory := make(
+		[]models.InventoryItem,
+		0,
+	)
+
+	for rows.Next() {
+		var item models.InventoryItem
+
+		if err := rows.Scan(
+			&item.ID,
+			&item.Name,
+			&item.Description,
+			&item.Quantity,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"failed to scan inventory item: %w",
+				err,
+			)
+		}
+
+		inventory = append(
+			inventory,
+			item,
+		)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(
+			"failed to read inventory rows: %w",
+			err,
+		)
+	}
+
+	return inventory, nil
 }

@@ -25,7 +25,9 @@ func (r *PostgresRepository) GetItem(
 			description,
 			price,
 			stock,
-			created_at
+			created_at,
+			credit_amount, 
+			item_type
 		FROM items
 		WHERE id = $1
 		`,
@@ -37,6 +39,8 @@ func (r *PostgresRepository) GetItem(
 		&item.Price,
 		&item.Stock,
 		&item.CreatedAt,
+		&item.CreditAmount,
+		&item.ItemType,
 	)
 
 	if err != nil {
@@ -53,6 +57,7 @@ func (r *PostgresRepository) GetItem(
 
 	return &item, nil
 }
+
 func (r *PostgresRepository) GetItemsOffset(
 	ctx context.Context,
 	limit int,
@@ -67,7 +72,9 @@ func (r *PostgresRepository) GetItemsOffset(
 			description,
 			price,
 			stock,
-			created_at
+			created_at,
+			credit_amount, 
+			item_type
 		FROM items
 		ORDER BY id
 		LIMIT $1
@@ -86,8 +93,7 @@ func (r *PostgresRepository) GetItemsOffset(
 
 	defer rows.Close()
 
-	items :=
-		make([]*models.Item, 0)
+	items := make([]*models.Item, 0)
 
 	for rows.Next() {
 		var item models.Item
@@ -99,6 +105,8 @@ func (r *PostgresRepository) GetItemsOffset(
 			&item.Price,
 			&item.Stock,
 			&item.CreatedAt,
+			&item.CreditAmount,
+			&item.ItemType,
 		); err != nil {
 			return nil, fmt.Errorf(
 				"failed to scan item: %w",
@@ -121,6 +129,7 @@ func (r *PostgresRepository) GetItemsOffset(
 
 	return items, nil
 }
+
 func (r *PostgresRepository) GetItemsCursor(
 	ctx context.Context,
 	lastID int,
@@ -135,7 +144,9 @@ func (r *PostgresRepository) GetItemsCursor(
 			description,
 			price,
 			stock,
-			created_at
+			created_at,
+			credit_amount, 
+			item_type
 		FROM items
 		WHERE id > $1
 		ORDER BY id
@@ -154,8 +165,7 @@ func (r *PostgresRepository) GetItemsCursor(
 
 	defer rows.Close()
 
-	items :=
-		make([]*models.Item, 0)
+	items := make([]*models.Item, 0)
 
 	for rows.Next() {
 		var item models.Item
@@ -167,6 +177,8 @@ func (r *PostgresRepository) GetItemsCursor(
 			&item.Price,
 			&item.Stock,
 			&item.CreatedAt,
+			&item.CreditAmount,
+			&item.ItemType,
 		); err != nil {
 			return nil, fmt.Errorf(
 				"failed to scan item: %w",
@@ -189,6 +201,7 @@ func (r *PostgresRepository) GetItemsCursor(
 
 	return items, nil
 }
+
 func (r *PostgresRepository) CountItems(
 	ctx context.Context,
 ) (int, error) {

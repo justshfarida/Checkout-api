@@ -64,10 +64,7 @@ func (h *Handler) GetItems(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -126,10 +123,7 @@ func (h *Handler) GetItemByID(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -184,10 +178,7 @@ func (h *Handler) GetItemsCursor(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 

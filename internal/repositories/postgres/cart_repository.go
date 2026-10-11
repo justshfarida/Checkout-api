@@ -24,7 +24,9 @@ func (r *PostgresRepository) GetUserCartOffset(
 				i.price,
 				i.stock,
 				i.created_at,
-				c.quantity
+				c.quantity,
+				i.credit_amount, 
+				i.item_type
 			FROM carts c
 			INNER JOIN items i
 				ON i.id = c.item_id
@@ -61,6 +63,8 @@ func (r *PostgresRepository) GetUserCartOffset(
 			&item.Stock,
 			&item.CreatedAt,
 			&item.Quantity,
+			&item.CreditAmount,
+			&item.ItemType,
 		); err != nil {
 			return nil, err
 		}
@@ -90,7 +94,9 @@ func (r *PostgresRepository) GetUserCartCursor(
 				i.price,
 				i.stock,
 				i.created_at,
-				c.quantity
+				c.quantity,
+				i.credit_amount,
+				i.item_type
 			FROM carts c
 			INNER JOIN items i
 				ON i.id = c.item_id
@@ -127,6 +133,8 @@ func (r *PostgresRepository) GetUserCartCursor(
 			&item.Stock,
 			&item.CreatedAt,
 			&item.Quantity,
+			&item.CreditAmount,
+			&item.ItemType,
 		); err != nil {
 			return nil, err
 		}

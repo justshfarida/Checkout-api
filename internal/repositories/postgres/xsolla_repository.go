@@ -38,7 +38,7 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, err
 	}
 
-	// Already processed.
+	// This transaction was already processed.
 	if result.RowsAffected() == 0 {
 		return false, nil
 	}
@@ -72,29 +72,113 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, repositories.ErrOrderNotPending
 	}
 
-	// 3. Decrease stock.
+	// 3. Process each item according to its type.
 	for _, item := range items {
-		result, err := tx.Exec(
+		var itemType string
+
+		err = tx.QueryRow(
 			ctx,
 			`
-			UPDATE items
-			SET stock = stock - $1
-			WHERE id = $2
-			  AND stock >= $1
+			SELECT item_type
+			FROM items
+			WHERE id = $1
 			`,
-			item.Quantity,
 			item.ItemID,
-		)
+		).Scan(&itemType)
 		if err != nil {
 			return false, err
 		}
 
-		if result.RowsAffected() == 0 {
-			return false, validation.ErrInsufficientStock
+		switch itemType {
+
+		case "merch":
+			// Physical merchandise has limited stock.
+			result, err := tx.Exec(
+				ctx,
+				`
+				UPDATE items
+				SET stock = stock - $1
+				WHERE id = $2
+				  AND stock >= $1
+				`,
+				item.Quantity,
+				item.ItemID,
+			)
+			if err != nil {
+				return false, err
+			}
+
+			if result.RowsAffected() == 0 {
+				return false, validation.ErrInsufficientStock
+			}
+
+		case "virtual_item":
+			// Give the purchased virtual item to the user.
+			_, err := tx.Exec(
+				ctx,
+				`
+				INSERT INTO user_inventory (
+					user_id,
+					item_id,
+					quantity
+				)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (user_id, item_id)
+				DO UPDATE SET
+					quantity = user_inventory.quantity + EXCLUDED.quantity
+				`,
+				userID,
+				item.ItemID,
+				item.Quantity,
+			)
+			if err != nil {
+				return false, err
+			}
+
+		case "currency_package":
+			// No stock handling here.
+			// Gold is credited below using credit_amount.
 		}
 	}
 
-	// 4. Mark order as paid.
+	// 4. Calculate how much Gold this order gives.
+	var totalCredit int
+
+	err = tx.QueryRow(
+		ctx,
+		`
+		SELECT COALESCE(
+			SUM(COALESCE(i.credit_amount, 0) * li.quantity),
+			0
+		)
+		FROM line_items li
+		JOIN items i ON i.id = li.item_id
+		WHERE li.order_id = $1
+		`,
+		orderID,
+	).Scan(&totalCredit)
+	if err != nil {
+		return false, err
+	}
+
+	// 5. Credit Gold to the user's balance.
+	if totalCredit > 0 {
+		_, err = tx.Exec(
+			ctx,
+			`
+			UPDATE users
+			SET balance = balance + $1
+			WHERE id = $2
+			`,
+			totalCredit,
+			userID,
+		)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	// 6. Mark order as paid.
 	result, err = tx.Exec(
 		ctx,
 		`
@@ -113,7 +197,7 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, repositories.ErrOrderNotPending
 	}
 
-	// 5. Clear the user's cart.
+	// 7. Clear the user's cart.
 	_, err = tx.Exec(
 		ctx,
 		`
@@ -126,7 +210,7 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, err
 	}
 
-	// 6. Commit everything.
+	// 8. Commit everything.
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}

@@ -6,6 +6,7 @@ import (
 	"checkout-api/internal/validation"
 	"context"
 	"fmt"
+	"log/slog"
 )
 
 type PaymentResult struct {
@@ -200,13 +201,16 @@ func (s *OrderService) CreateOrder(
 			return nil, ErrItemNotFound
 		}
 
-		if err := validation.ValidateStock(
-			item.Stock,
-			cartItem.Quantity,
-		); err != nil {
-			return nil, err
+		// Only physical merchandise has limited stock.
+		// Virtual items and currency packages have unlimited stock.
+		if item.ItemType == "merch" {
+			if err := validation.ValidateStock(
+				item.Stock,
+				cartItem.Quantity,
+			); err != nil {
+				return nil, err
+			}
 		}
-
 		lineItems = append(
 			lineItems,
 			models.LineItem{
@@ -244,8 +248,21 @@ func (s *OrderService) CreateOrder(
 		xsollaItems,
 	)
 	if err != nil {
+		slog.ErrorContext(ctx, "Payment token creation failed",
+			"error", err.Error(),
+			"order_id", order.ID,
+			"user_id", userID,
+		)
 		return nil, err
 	}
+
+	slog.InfoContext(ctx, "Order created",
+		"order_id", order.ID,
+		"user_id", userID,
+		"total", total,
+		"line_items", len(lineItems),
+		"xsolla_order_id", payment.OrderID,
+	)
 
 	paymentURL :=
 		"https://sandbox-secure.xsolla.com/paystation4/?token=" +
@@ -285,7 +302,7 @@ func (s *OrderService) ProcessXsollaPayment(
 		return ErrOrderNotFound
 	}
 
-	_, err = s.xsollaRep.ProcessXsollaPayment(
+	processed, err := s.xsollaRep.ProcessXsollaPayment(
 		ctx,
 		transactionID,
 		orderID,
@@ -293,6 +310,15 @@ func (s *OrderService) ProcessXsollaPayment(
 	)
 	if err != nil {
 		return err
+	}
+
+	// Xsolla retries webhooks; a transaction that was already handled is
+	// acknowledged without changing anything.
+	if !processed {
+		slog.InfoContext(ctx, "Duplicate payment webhook ignored",
+			"order_id", orderID,
+			"transaction_id", transactionID,
+		)
 	}
 
 	return nil

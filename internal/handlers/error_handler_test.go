@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,6 +27,19 @@ func TestHandleError(t *testing.T) {
 
 		mustNotContain string
 	}{
+		{
+			name: "timeout returns 504 without leaking internal message",
+
+			err: fmt.Errorf("query items: %w", context.DeadlineExceeded),
+
+			wantStatus: http.StatusGatewayTimeout,
+
+			wantCode: "TIMEOUT",
+
+			wantMessage: "The request took too long, please try again",
+
+			mustNotContain: "query items",
+		},
 		{
 			name: "item not found returns 404",
 
@@ -84,6 +99,7 @@ func TestHandleError(t *testing.T) {
 				// ACT
 				handleError(
 					recorder,
+					httptest.NewRequest(http.MethodGet, "/items", nil),
 					tt.err,
 				)
 

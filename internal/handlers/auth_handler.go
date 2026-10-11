@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"checkout-api/internal/middlewares"
 	"checkout-api/internal/services"
 	"checkout-api/internal/validation"
 	"encoding/json"
@@ -76,7 +77,7 @@ func (h *Handler) LoginUser(
 			return
 		}
 
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -85,7 +86,7 @@ func (h *Handler) LoginUser(
 	)
 
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -97,7 +98,7 @@ func (h *Handler) LoginUser(
 	)
 
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -111,7 +112,7 @@ func (h *Handler) LoginUser(
 			Secure:   false,
 			SameSite: http.SameSiteLaxMode,
 			Expires:  refreshExpiresAt,
-			MaxAge:   int(7 * 24 * time.Hour),
+			MaxAge:   int((7 * 24 * time.Hour).Seconds()),
 		},
 	)
 
@@ -177,7 +178,7 @@ func (h *Handler) CreateUser(
 	)
 
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -261,7 +262,7 @@ func (h *Handler) IssueJWT(
 	)
 
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -275,7 +276,7 @@ func (h *Handler) IssueJWT(
 			Secure:   false,
 			SameSite: http.SameSiteLaxMode,
 			Expires:  newRefreshExpiresAt,
-			MaxAge:   int(7 * 24 * time.Hour),
+			MaxAge:   int((7 * 24 * time.Hour).Seconds()),
 		},
 	)
 
@@ -324,4 +325,72 @@ func (h *Handler) Logout(
 	)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+func (h *Handler) GetCurrentUser(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok := middlewares.UserIDFromContext(
+		r.Context(),
+	)
+	if !ok {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
+		)
+		return
+	}
+
+	user, err := h.authService.GetUserByID(
+		r.Context(),
+		userID,
+	)
+	if err != nil {
+		handleError(w, r, err)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		map[string]any{
+			"id":      user.ID,
+			"email":   user.Email,
+			"balance": user.Balance,
+		},
+	)
+}
+func (h *Handler) GetUserInventory(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	userID, ok := middlewares.UserIDFromContext(
+		r.Context(),
+	)
+	if !ok {
+		writeError(
+			w,
+			http.StatusUnauthorized,
+			"UNAUTHORIZED",
+			"Authentication is required",
+		)
+		return
+	}
+
+	inventory, err := h.authService.GetUserInventory(
+		r.Context(),
+		userID,
+	)
+	if err != nil {
+		handleError(w, r, err)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		inventory,
+	)
 }

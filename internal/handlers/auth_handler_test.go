@@ -435,7 +435,7 @@ func TestHandler_IssueJWT(t *testing.T) {
 				)
 
 				req := httptest.NewRequest(
-					http.MethodGet,
+					http.MethodPost,
 					"/token",
 					nil,
 				)
