@@ -60,6 +60,14 @@ func main() {
 		log.Fatalf("failed to ping database: %v", err)
 	}
 
+	// TELEMETRY
+	// Set up before anything creates tracers, meters or loggers
+	// (e.g. the item service's custom counter).
+	shutdownTelemetry, err := telemetry.Init(ctx)
+	if err != nil {
+		log.Fatalf("failed to initialize telemetry: %v", err)
+	}
+
 	// REPOSITORY
 	repo := postgres.NewPostgresRepository(pool)
 
@@ -114,11 +122,6 @@ func main() {
 		http.Error(w, "Intentional telemetry test error", http.StatusInternalServerError)
 	})
 
-	// TELEMETRY
-	shutdownTelemetry, err := telemetry.Init(ctx)
-	if err != nil {
-		log.Fatalf("failed to initialize telemetry: %v", err)
-	}
 	//every request gets a span, (method, route,  status)
 	instrumentedHandler := otelhttp.NewHandler(
 		middlewares.CORS(mux, frontendURL),
@@ -162,6 +165,11 @@ func main() {
 		}
 	}
 
+	// GRACEFUL SHUTDOWN, in order:
+	// 1. stop accepting new requests and finish in-flight ones
+	// 2. flush pending telemetry
+	// 3. close database connections
+
 	// Finish active requests before flushing telemetry.
 	serverShutdownCtx, cancelServer := context.WithTimeout(
 		context.Background(),
@@ -187,6 +195,12 @@ func main() {
 		log.Printf("telemetry shutdown error: %v", err)
 	}
 	cancelTelemetry()
+
+	// Close database connections last, after in-flight requests have
+	// finished. (The deferred pool.Close above is a safety net; calling
+	// Close twice is safe.)
+	pool.Close()
+	log.Println("Shutdown complete")
 }
 
 func mustGetEnv(key string) string {
