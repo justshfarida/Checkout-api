@@ -90,10 +90,7 @@ func (h *Handler) CreateOrder(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -114,10 +111,7 @@ func (h *Handler) CreateOrder(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -209,10 +203,7 @@ func (h *Handler) GetUserOrders(
 			)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -293,10 +284,7 @@ func (h *Handler) GetUserOrdersCursor(
 			)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 

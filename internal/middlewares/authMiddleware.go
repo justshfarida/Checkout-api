@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -114,9 +115,8 @@ func AuthMiddleware(
 				)
 
 			if err != nil || !token.Valid {
-				fmt.Printf(
-					"failed to parse JWT: %v\n",
-					err,
+				slog.WarnContext(r.Context(), "Rejected request: invalid access token",
+					"error", fmt.Sprint(err),
 				)
 
 				writeError(
@@ -134,9 +134,8 @@ func AuthMiddleware(
 				)
 
 			if err != nil || userID <= 0 {
-				fmt.Printf(
-					"failed to parse user ID: %v\n",
-					err,
+				slog.WarnContext(r.Context(), "Rejected request: invalid user ID in token",
+					"error", fmt.Sprint(err),
 				)
 
 				writeError(

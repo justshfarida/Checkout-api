@@ -77,7 +77,7 @@ func (h *Handler) LoginUser(
 			return
 		}
 
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -86,7 +86,7 @@ func (h *Handler) LoginUser(
 	)
 
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -98,7 +98,7 @@ func (h *Handler) LoginUser(
 	)
 
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -178,7 +178,7 @@ func (h *Handler) CreateUser(
 	)
 
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -262,7 +262,7 @@ func (h *Handler) IssueJWT(
 	)
 
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -348,7 +348,7 @@ func (h *Handler) GetCurrentUser(
 		userID,
 	)
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 
@@ -384,7 +384,7 @@ func (h *Handler) GetUserInventory(
 		userID,
 	)
 	if err != nil {
-		handleError(w, err)
+		handleError(w, r, err)
 		return
 	}
 

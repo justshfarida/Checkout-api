@@ -84,6 +84,7 @@ func TestHandleError(t *testing.T) {
 				// ACT
 				handleError(
 					recorder,
+					httptest.NewRequest(http.MethodGet, "/items", nil),
 					tt.err,
 				)
 

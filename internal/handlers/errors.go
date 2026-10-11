@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"checkout-api/internal/services"
@@ -42,6 +42,7 @@ func writeError(
 
 func handleError(
 	w http.ResponseWriter,
+	r *http.Request,
 	err error,
 ) {
 	switch {
@@ -80,10 +81,14 @@ func handleError(
 		)
 
 	default:
-		// Keep the real internal error in server logs.
-		log.Printf(
-			"internal error: %v",
-			err,
+		// Keep the real internal error in server logs. Using the request
+		// context attaches trace_id/span_id, so the log links to its trace.
+		slog.ErrorContext(
+			r.Context(),
+			"Request failed",
+			"error", err.Error(),
+			"method", r.Method,
+			"path", r.URL.Path,
 		)
 
 		// Never expose database/internal implementation details.

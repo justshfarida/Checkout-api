@@ -53,8 +53,10 @@ func main() {
 		log.Fatalf("failed to create database pool: %v", err)
 	}
 	defer pool.Close()
-
-	if err := pool.Ping(ctx); err != nil {
+	// Fail fast if the database is unreachable instead of hanging at startup.
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
 		log.Fatalf("failed to ping database: %v", err)
 	}
 
@@ -117,7 +119,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize telemetry: %v", err)
 	}
-
+	//every request gets a span, (method, route,  status)
 	instrumentedHandler := otelhttp.NewHandler(
 		middlewares.CORS(mux, frontendURL),
 		"http.server",
@@ -131,6 +133,9 @@ func main() {
 		Addr:              ":8080",
 		Handler:           instrumentedHandler,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second, // max time to read the whole request
+		WriteTimeout:      15 * time.Second, // max time to write the response
+		IdleTimeout:       60 * time.Second, // keep-alive connections
 	}
 
 	signalCtx, stop := signal.NotifyContext(

@@ -109,10 +109,7 @@ func (h *Handler) UpsertCartItem(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -186,10 +183,7 @@ func (h *Handler) RemoveCartItem(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -273,10 +267,7 @@ func (h *Handler) GetUserCart(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
@@ -378,10 +369,7 @@ func (h *Handler) GetUserCartCursor(
 		)
 
 	if err != nil {
-		handleError(
-			w,
-			err,
-		)
+		handleError(w, r, err)
 		return
 	}
 
