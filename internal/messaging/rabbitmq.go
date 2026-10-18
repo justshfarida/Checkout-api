@@ -4,7 +4,6 @@ package messaging
 // and publishes events. Workers use the same package to consume.
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -192,6 +191,74 @@ func (r *RabbitMQ) Consume(queue, consumerTag string, prefetch int) (<-chan amqp
 		return nil, fmt.Errorf("start consuming %s: %w", queue, err)
 	}
 	return deliveries, nil
+}
+
+// RetryCountHeader counts how many times a worker already retried a message
+// (exercise 3). After maxAttempts in the worker the message goes to the DLQ.
+const RetryCountHeader = "x-retry-count"
+
+// Republish puts a copy of a delivered message back on a queue, with extra
+// headers, and waits for the broker to confirm it. Used by the worker to
+// retry a message with a counter, and by dlq-replay to move a message from
+// the DLQ back to the main queue.
+func (r *RabbitMQ) Republish(ctx context.Context, queue string, d amqp.Delivery, headers amqp.Table) error {
+	merged := amqp.Table{}
+	for k, v := range d.Headers {
+		// x-death is RabbitMQ's dead-letter history; a fresh copy starts clean.
+		if k == "x-death" {
+			continue
+		}
+		merged[k] = v
+	}
+	for k, v := range headers {
+		merged[k] = v
+	}
+
+	r.mu.Lock()
+	confirm, err := r.ch.PublishWithDeferredConfirmWithContext(
+		ctx, "", queue, false, false,
+		amqp.Publishing{
+			MessageId:    d.MessageId,
+			Type:         d.Type,
+			ContentType:  d.ContentType,
+			DeliveryMode: amqp.Persistent,
+			Timestamp:    d.Timestamp,
+			Headers:      merged,
+			Body:         d.Body,
+		},
+	)
+	r.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("republish %s: %w", d.MessageId, err)
+	}
+
+	stored, err := confirm.WaitContext(ctx)
+	if err != nil {
+		return fmt.Errorf("confirm republish %s: %w", d.MessageId, err)
+	}
+	if !stored {
+		return fmt.Errorf("broker refused republish of %s", d.MessageId)
+	}
+	return nil
+}
+
+// Get pulls one message from a queue without waiting (ok=false when empty).
+// The caller must Ack or Nack it. Used by the dlq-replay tool.
+func (r *RabbitMQ) Get(queue string) (amqp.Delivery, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ch.Get(queue, false)
+}
+
+// QueueDepth returns how many messages are ready in a queue.
+func (r *RabbitMQ) QueueDepth(queue string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	q, err := r.ch.QueueDeclarePassive(queue, true, false, false, false, nil)
+	if err != nil {
+		return 0, fmt.Errorf("inspect %s: %w", queue, err)
+	}
+	return q.Messages, nil
 }
 
 // Close closes the channel and the connection.

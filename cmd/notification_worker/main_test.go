@@ -76,9 +76,13 @@ func delivery(body, messageID string) (amqp.Delivery, *fakeAck) {
 	return amqp.Delivery{Acknowledger: ack, Body: []byte(body), MessageId: messageID}, ack
 }
 
+// retries records the retry copies a worker publishes.
+var retries []int
+
 // newWorker returns a worker whose email sender counts calls and can fail.
 func newWorker(db messaging.DB, emailErr *error) (*worker, *int) {
 	sent := 0
+	retries = nil
 	w := &worker{
 		id: "test",
 		db: db,
@@ -89,9 +93,19 @@ func newWorker(db messaging.DB, emailErr *error) (*worker, *int) {
 			sent++
 			return nil
 		},
-		requeueDelay: 0,
+		retry: func(_ context.Context, _ amqp.Delivery, attempt int) error {
+			retries = append(retries, attempt)
+			return nil
+		},
+		retryDelay: 0,
 	}
 	return w, &sent
+}
+
+// withRetryCount simulates a copy that was already retried n times.
+func withRetryCount(msg amqp.Delivery, n int32) amqp.Delivery {
+	msg.Headers = amqp.Table{messaging.RetryCountHeader: n}
+	return msg
 }
 
 // ---------- tests ----------
@@ -149,38 +163,78 @@ func TestProcess_InvalidMessageGoesToDLQ(t *testing.T) {
 	}
 }
 
-func TestProcess_EmailFailureIsRequeuedAndRetriedLater(t *testing.T) {
-	db := newFakeDB()
+func TestProcess_EmailFailureIsRetriedWithCounter(t *testing.T) {
 	emailErr := errors.New("smtp down")
-	w, sent := newWorker(db, &emailErr)
+	w, sent := newWorker(newFakeDB(), &emailErr)
 
 	msg, ack := delivery(validBody, "order.paid:42")
 	w.process(context.Background(), msg)
 
-	if !ack.nacked || !ack.requeued {
-		t.Fatalf("nacked=%v requeued=%v, want Nack(requeue=true)", ack.nacked, ack.requeued)
+	if len(retries) != 1 || retries[0] != 1 {
+		t.Fatalf("retries = %v, want one retry copy with attempt 1", retries)
 	}
+	if !ack.acked {
+		t.Error("original must be acked once its retry copy is published")
+	}
+	if *sent != 0 {
+		t.Errorf("sent = %d, want 0", *sent)
+	}
+}
 
-	// Provider is back: the redelivered message must still send the email,
-	// because the first attempt never finished.
+func TestProcess_GivesUpAfterMaxAttemptsAndDeadLetters(t *testing.T) {
+	emailErr := errors.New("smtp down")
+	w, _ := newWorker(newFakeDB(), &emailErr)
+
+	// This copy was already retried maxAttempts-1 times: this is the last try.
+	msg, ack := delivery(validBody, "order.paid:42")
+	w.process(context.Background(), withRetryCount(msg, maxAttempts-1))
+
+	if !ack.nacked || ack.requeued {
+		t.Fatalf("nacked=%v requeued=%v, want Nack(requeue=false) -> DLQ", ack.nacked, ack.requeued)
+	}
+	if len(retries) != 0 {
+		t.Errorf("retries = %v, want none after the last attempt", retries)
+	}
+}
+
+func TestProcess_RetryAfterFailureStillSendsEmail(t *testing.T) {
+	db := newFakeDB()
+	emailErr := errors.New("smtp down")
+	w, sent := newWorker(db, &emailErr)
+
+	first, _ := delivery(validBody, "order.paid:42")
+	w.process(context.Background(), first)
+
+	// Provider is back: the retry copy must still send the email, because
+	// the first attempt never finished (processed_at is empty).
 	emailErr = nil
 	retry, retryAck := delivery(validBody, "order.paid:42")
-	w.process(context.Background(), retry)
+	w.process(context.Background(), withRetryCount(retry, 1))
 
 	if *sent != 1 || !retryAck.acked {
 		t.Fatalf("after retry sent=%d acked=%v, want 1 email and Ack", *sent, retryAck.acked)
 	}
 }
 
-func TestProcess_DatabaseErrorIsRequeuedWithoutEmail(t *testing.T) {
+func TestProcess_DatabaseErrorIsRetriedWithoutEmail(t *testing.T) {
 	db := newFakeDB()
 	db.err = errors.New("db down")
 	w, sent := newWorker(db, nil)
-	msg, ack := delivery(validBody, "order.paid:42")
+	msg, _ := delivery(validBody, "order.paid:42")
 
 	w.process(context.Background(), msg)
 
-	if !ack.requeued || *sent != 0 {
-		t.Fatalf("requeued=%v sent=%d, want requeue and no email", ack.requeued, *sent)
+	if len(retries) != 1 || *sent != 0 {
+		t.Fatalf("retries=%v sent=%d, want one retry and no email", retries, *sent)
+	}
+}
+
+func TestRetryCount(t *testing.T) {
+	msg, _ := delivery(validBody, "x")
+	if got := retryCount(msg); got != 0 {
+		t.Errorf("no header: retryCount = %d, want 0", got)
+	}
+	if got := retryCount(withRetryCount(msg, 2)); got != 2 {
+		t.Errorf("header 2: retryCount = %d, want 2", got)
 	}
 }

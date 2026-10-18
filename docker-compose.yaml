@@ -74,6 +74,9 @@ services:
       # Only the database URL from .env, not the whole file: the worker never
       # needs the Xsolla keys or the JWT secret (least privilege).
       DATABASE_URL: ${DATABASE_URL}
+      # Exercise 3 demo: "true" makes every email fail so you can watch the
+      # retries and the DLQ. Off unless you set it in your shell.
+      SIMULATE_EMAIL_FAILURE: ${SIMULATE_EMAIL_FAILURE:-false}
     depends_on:
       rabbitmq:
         condition: service_healthy

@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"os/signal"
@@ -20,9 +21,13 @@ import (
 )
 
 const (
-	// requeueDelay avoids a hot loop: without it a message whose email keeps
-	// failing would bounce back and forth hundreds of times per second.
-	requeueDelay = 1 * time.Second
+	// retryDelay is the pause before a failed message is tried again, so a
+	// failing email provider is not hammered hundreds of times per second.
+	retryDelay = 1 * time.Second
+
+	// maxAttempts: after this many failed tries the message is a poison
+	// message and goes to the dead-letter queue (exercise 3).
+	maxAttempts = 3
 
 	// eventTypeOrderPaid is part of the dedup key in processed_messages.
 	eventTypeOrderPaid = "order.paid"
@@ -30,10 +35,11 @@ const (
 
 // worker holds what process needs, so tests can swap in fakes.
 type worker struct {
-	id           string
-	db           messaging.DB
-	sendEmail    func(context.Context, messaging.OrderPaidEvent) error
-	requeueDelay time.Duration
+	id         string
+	db         messaging.DB
+	sendEmail  func(context.Context, messaging.OrderPaidEvent) error
+	retry      func(ctx context.Context, msg amqp.Delivery, attempt int) error
+	retryDelay time.Duration
 }
 
 func main() {
@@ -77,11 +83,27 @@ func main() {
 		log.Fatalf("[%s] consume: %v", workerID, err)
 	}
 
+	sendEmail := notifier.SendOrderConfirmation
+	// Demo switch for exercise 3: pretend the email provider is down, so
+	// messages exhaust their retries and land in the dead-letter queue.
+	if os.Getenv("SIMULATE_EMAIL_FAILURE") == "true" {
+		log.Printf("[%s] SIMULATE_EMAIL_FAILURE=true: every email will fail", workerID)
+		sendEmail = func(context.Context, messaging.OrderPaidEvent) error {
+			return errors.New("simulated email provider outage")
+		}
+	}
+
 	w := &worker{
-		id:           workerID,
-		db:           pool,
-		sendEmail:    notifier.SendOrderConfirmation,
-		requeueDelay: requeueDelay,
+		id:        workerID,
+		db:        pool,
+		sendEmail: sendEmail,
+		// A retry is a new copy of the message with the attempt counter in a
+		// header; RabbitMQ itself does not count requeues on classic queues.
+		retry: func(ctx context.Context, msg amqp.Delivery, attempt int) error {
+			return broker.Republish(ctx, messaging.OrderNotificationsQueue, msg,
+				amqp.Table{messaging.RetryCountHeader: int32(attempt)})
+		},
+		retryDelay: retryDelay,
 	}
 
 	log.Printf("[%s] waiting for messages on %s", workerID, messaging.OrderNotificationsQueue)
@@ -104,12 +126,14 @@ func main() {
 }
 
 // process applies the acknowledgment decision tree (lecture slide 34),
-// with an idempotency check before the side effect (slide 39):
+// with an idempotency check before the side effect (slide 39) and a retry
+// limit before the dead-letter queue (slide 20):
 //
-//	broken message      -> Nack, requeue=false  (dead-letter queue)
-//	already processed   -> Ack                  (duplicate: skip)
-//	email sent          -> mark processed, Ack
-//	transient failure   -> Nack, requeue=true   (try again later)
+//	broken message          -> Nack, requeue=false  (dead-letter queue)
+//	already processed       -> Ack                  (duplicate: skip)
+//	email sent              -> mark processed, Ack
+//	failure, tries left     -> retry later with attempt+1
+//	failure, no tries left  -> Nack, requeue=false  (dead-letter queue)
 func (w *worker) process(ctx context.Context, msg amqp.Delivery) {
 	var event messaging.OrderPaidEvent
 	if err := json.Unmarshal(msg.Body, &event); err != nil || event.OrderID <= 0 || msg.MessageId == "" {
@@ -123,8 +147,7 @@ func (w *worker) process(ctx context.Context, msg amqp.Delivery) {
 	// Exercise 1: record the message BEFORE the side effect.
 	alreadyDone, err := messaging.BeginProcessing(ctx, w.db, eventTypeOrderPaid, msg.MessageId)
 	if err != nil {
-		log.Printf("[%s] dedup check for %s failed: %v - requeueing", w.id, msg.MessageId, err)
-		w.requeue(msg)
+		w.retryOrDeadLetter(ctx, msg, "dedup check failed: "+err.Error())
 		return
 	}
 	if alreadyDone {
@@ -133,18 +156,17 @@ func (w *worker) process(ctx context.Context, msg amqp.Delivery) {
 		return
 	}
 
-	log.Printf("[%s] sending confirmation for order #%d (message %s)", w.id, event.OrderID, msg.MessageId)
+	log.Printf("[%s] sending confirmation for order #%d to user %d (message %s)",
+		w.id, event.OrderID, event.UserID, msg.MessageId)
 
 	if err := w.sendEmail(ctx, event); err != nil {
-		// Email provider down, timeout, or shutting down. The row stays
-		// "unfinished", so the retry will send the email.
-		log.Printf("[%s] email for order #%d failed: %v - requeueing", w.id, event.OrderID, err)
-		w.requeue(msg)
+		// The processed_messages row stays "unfinished", so a retry sends it.
+		w.retryOrDeadLetter(ctx, msg, "email failed: "+err.Error())
 		return
 	}
 
 	if err := messaging.MarkProcessed(ctx, w.db, eventTypeOrderPaid, msg.MessageId); err != nil {
-		// The email already went out. Ack anyway: requeueing would send it
+		// The email already went out. Ack anyway: retrying would send it
 		// again right away. Logged so it can be investigated.
 		log.Printf("[%s] email sent but marking %s failed: %v", w.id, msg.MessageId, err)
 	}
@@ -153,10 +175,48 @@ func (w *worker) process(ctx context.Context, msg amqp.Delivery) {
 	log.Printf("[%s] done order #%d", w.id, event.OrderID)
 }
 
-// requeue waits a moment, then puts the message back in the queue.
-func (w *worker) requeue(msg amqp.Delivery) {
-	time.Sleep(w.requeueDelay)
-	_ = msg.Nack(false, true)
+// retryOrDeadLetter handles a failed attempt. While tries are left, a copy
+// with attempt+1 goes back to the queue and the original is acked. After
+// maxAttempts the message is rejected and RabbitMQ routes it to the DLQ.
+func (w *worker) retryOrDeadLetter(ctx context.Context, msg amqp.Delivery, reason string) {
+	// Shutting down: put it back untouched, this attempt does not count.
+	if ctx.Err() != nil {
+		_ = msg.Nack(false, true)
+		return
+	}
+
+	attempt := retryCount(msg) + 1
+	if attempt >= maxAttempts {
+		log.Printf("[%s] %s: try %d/%d, giving up -> DLQ (%s)", w.id, msg.MessageId, attempt, maxAttempts, reason)
+		_ = msg.Nack(false, false)
+		return
+	}
+
+	log.Printf("[%s] %s: try %d/%d failed (%s), retrying", w.id, msg.MessageId, attempt, maxAttempts, reason)
+	time.Sleep(w.retryDelay)
+
+	if err := w.retry(ctx, msg, attempt); err != nil {
+		// Could not publish the retry copy: fall back to a plain requeue so
+		// the message is never lost.
+		log.Printf("[%s] retry publish for %s failed: %v - requeueing", w.id, msg.MessageId, err)
+		_ = msg.Nack(false, true)
+		return
+	}
+	_ = msg.Ack(false)
+}
+
+// retryCount reads how many times this message was already retried.
+func retryCount(msg amqp.Delivery) int {
+	switch v := msg.Headers[messaging.RetryCountHeader].(type) {
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	case int:
+		return v
+	default:
+		return 0
+	}
 }
 
 func mustEnv(key string) string {
