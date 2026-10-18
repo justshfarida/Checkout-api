@@ -25,8 +25,11 @@ const (
 )
 
 // OrderPaidEvent is the message body: just enough for a worker to do its job.
+// It is written into the outbox table by the payment transaction (see
+// xsolla_repository.go) and published from there by the outbox relay.
 type OrderPaidEvent struct {
 	OrderID int       `json:"order_id"`
+	UserID  int       `json:"user_id"`
 	Total   int       `json:"total"`
 	PaidAt  time.Time `json:"paid_at"`
 }
@@ -52,6 +55,13 @@ func Connect(url string) (*RabbitMQ, error) {
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("open rabbitmq channel: %w", err)
+	}
+
+	// Confirm mode: the broker acknowledges every published message once it
+	// has stored it, so the outbox relay knows when an event is really sent.
+	if err := ch.Confirm(false); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("enable publisher confirms: %w", err)
 	}
 
 	r := &RabbitMQ{conn: conn, ch: ch}
@@ -122,34 +132,42 @@ func (r *RabbitMQ) declareTopology() error {
 	return nil
 }
 
-// PublishOrderPaid sends one "order paid" job to the order_notifications queue.
-func (r *RabbitMQ) PublishOrderPaid(ctx context.Context, event OrderPaidEvent) error {
-	body, err := json.Marshal(event)
-	if err != nil {
-		return fmt.Errorf("encode order paid event: %w", err)
-	}
-
+// PublishEvent publishes one event to the order_notifications queue and
+// waits until RabbitMQ confirms it has stored the message (publisher
+// confirms). Only then may the caller treat the event as sent.
+func (r *RabbitMQ) PublishEvent(ctx context.Context, eventType, messageID string, body []byte) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	return r.ch.PublishWithContext(
+	confirm, err := r.ch.PublishWithDeferredConfirmWithContext(
 		ctx,
 		"",                      // exchange: "" = default exchange
 		OrderNotificationsQueue, // routing key = queue name (default exchange rule)
 		false,                   // mandatory
 		false,                   // immediate
 		amqp.Publishing{
-			// Same order -> same ID, every time. If this event is ever
-			// delivered twice, the worker can recognise the duplicate
-			// (exercise 1: idempotent consumer).
-			MessageId:    fmt.Sprintf("order.paid:%d", event.OrderID),
-			Type:         "order.paid",
+			// Stable id from the outbox, e.g. "order.paid:42": lets the
+			// consumer recognise a duplicate delivery (exercise 1).
+			MessageId:    messageID,
+			Type:         eventType,
 			DeliveryMode: amqp.Persistent, // written to disk, survives a broker restart
 			ContentType:  "application/json",
 			Timestamp:    time.Now().UTC(),
 			Body:         body,
 		},
 	)
+	r.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("publish %s: %w", messageID, err)
+	}
+
+	// Wait for the broker's answer: ack = stored, nack = refused.
+	stored, err := confirm.WaitContext(ctx)
+	if err != nil {
+		return fmt.Errorf("confirm %s: %w", messageID, err)
+	}
+	if !stored {
+		return fmt.Errorf("broker refused %s", messageID)
+	}
+	return nil
 }
 
 // Consume starts receiving messages from a queue. Messages are NOT

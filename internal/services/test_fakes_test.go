@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"checkout-api/internal/messaging"
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
 )
@@ -514,17 +513,3 @@ func (f *fakeXsollaRepository) ProcessXsollaPayment(
 }
 
 var _ repositories.XsollaRepository = (*fakeXsollaRepository)(nil)
-
-// ======================================================
-// FAKE EVENT PUBLISHER
-// ======================================================
-
-type fakeEventPublisher struct {
-	err    error
-	events []messaging.OrderPaidEvent
-}
-
-func (f *fakeEventPublisher) PublishOrderPaid(ctx context.Context, e messaging.OrderPaidEvent) error {
-	f.events = append(f.events, e)
-	return f.err
-}

@@ -20,6 +20,7 @@ import (
 	_ "checkout-api/docs"
 
 	"checkout-api/internal/messaging"
+	"checkout-api/internal/outbox"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -74,14 +75,23 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize telemetry: %v", err)
 	}
-	// MESSAGE BROKER
-	// Fail fast like the database: the API should not start half-configured.
-	broker, err := messaging.Connect(rabbitURL)
-	if err != nil {
-		log.Fatalf("failed to connect to rabbitmq: %v", err)
-	}
-	defer broker.Close()
-	log.Println("Connected to RabbitMQ")
+	// OUTBOX RELAY (exercise 2)
+	// Payments write their events to the outbox table; this background loop
+	// publishes them to RabbitMQ. The API does not need the broker to start:
+	// if RabbitMQ is down, events simply wait in the outbox.
+	relay := outbox.NewRelay(outbox.NewPostgresStore(pool), func() (outbox.Publisher, error) {
+		broker, err := messaging.Connect(rabbitURL)
+		if err != nil {
+			return nil, err
+		}
+		return broker, nil
+	})
+	relayCtx, stopRelay := context.WithCancel(context.Background())
+	relayDone := make(chan struct{})
+	go func() {
+		defer close(relayDone)
+		relay.Run(relayCtx)
+	}()
 
 	// REPOSITORY
 	repo := postgres.NewPostgresRepository(pool)
@@ -120,8 +130,6 @@ func main() {
 		xsollaService,
 		repo,
 	)
-	// Paid orders are announced on RabbitMQ (order_notifications queue).
-	orderService.SetEventPublisher(broker)
 
 	// HANDLERS AND ROUTES
 	h := handlers.NewHandler(
@@ -222,10 +230,11 @@ func main() {
 		log.Printf("telemetry shutdown error: %v", err)
 	}
 	cancelTelemetry()
-	// Close the broker after the HTTP server: no request can publish anymore.
-	if err := broker.Close(); err != nil {
-		log.Printf("rabbitmq close error: %v", err)
-	}
+	// Stop the outbox relay after the HTTP server (no new payments can come
+	// in) and before closing the database it reads from. Unsent events stay
+	// in the outbox and are published after the next start.
+	stopRelay()
+	<-relayDone
 	// Close database connections last, after in-flight requests have
 	// finished. (The deferred pool.Close above is a safety net; calling
 	// Close twice is safe.)
