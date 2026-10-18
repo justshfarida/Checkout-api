@@ -18,8 +18,13 @@ services:
       OTEL_SERVICE_NAME: checkout-api
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev,service.version=1.0.0
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # Where the API finds the message broker. "rabbitmq" is the service
+      # name below; Docker's internal DNS resolves it to that container.
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
     depends_on:
         db:
+          condition: service_healthy
+        rabbitmq:
           condition: service_healthy
   db:
     image: postgres:18-alpine
@@ -40,6 +45,24 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  # Message broker for async work (order events -> workers).
+  rabbitmq:
+    image: rabbitmq:3-management        # "-management" adds the web UI
+    container_name: farida-checkout-rabbitmq
+    ports:
+      - "5672:5672"     # AMQP: the port Go code connects to
+      - "15672:15672"   # management UI: http://localhost:15672
+    environment:
+      RABBITMQ_DEFAULT_USER: guest      # local dev only
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      # Queues and persistent messages survive "docker compose down/up".
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
   otel-collector:
       image: otel/opentelemetry-collector-contrib:0.147.0
       #tells the Collector to load that file when it starts.
@@ -53,3 +76,4 @@ services:
       restart: unless-stopped
 volumes:
   postgres_data:
+  rabbitmq_data:
