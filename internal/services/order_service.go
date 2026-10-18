@@ -1,14 +1,21 @@
 package services
 
 import (
+	"checkout-api/internal/messaging"
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
 	"checkout-api/internal/validation"
+
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 )
+
+// orderEventPublishTimeout caps how long a webhook may wait for RabbitMQ.
+// A blocked broker must never hold up the answer to Xsolla.
+const orderEventPublishTimeout = 2 * time.Second
 
 type PaymentResult struct {
 	Success       bool
@@ -37,6 +44,7 @@ type OrderService struct {
 	payment       PaymentProcessor
 	xsollaService XsollaPaymentService
 	xsollaRep     repositories.XsollaRepository
+	events        OrderEventPublisher
 }
 
 func NewOrderService(
@@ -46,6 +54,7 @@ func NewOrderService(
 	payment PaymentProcessor,
 	xsollaService XsollaPaymentService,
 	xsollaRep repositories.XsollaRepository,
+
 ) *OrderService {
 	return &OrderService{
 		repo:          repo,
@@ -54,7 +63,14 @@ func NewOrderService(
 		payment:       payment,
 		xsollaService: xsollaService,
 		xsollaRep:     xsollaRep,
+		events:        NoopPublisher{},
 	}
+}
+
+// SetEventPublisher plugs in where order events go (RabbitMQ in production).
+// Kept as a setter so the constructor and existing tests don't change.
+func (s *OrderService) SetEventPublisher(p OrderEventPublisher) {
+	s.events = p
 }
 
 type OrderOffsetResult struct {
@@ -314,15 +330,50 @@ func (s *OrderService) ProcessXsollaPayment(
 	}
 
 	// Xsolla retries webhooks; a transaction that was already handled is
-	// acknowledged without changing anything.
+	// acknowledged without changing anything, and without a second event.
 	if !processed {
 		slog.InfoContext(ctx, "Duplicate payment webhook ignored",
 			"order_id", orderID,
 			"transaction_id", transactionID,
 		)
+		return nil
 	}
 
+	// The payment is committed. Hand the slow follow-up work (email, later
+	// analytics) to the queue instead of doing it here.
+	s.publishOrderPaid(ctx, orderID, items)
+
 	return nil
+}
+
+// publishOrderPaid announces a paid order. A failure is logged but never
+// returned: the payment is already committed, and the email is not critical.
+// (Exercise 2, the transactional outbox, removes the small chance of losing
+// the event here.)
+func (s *OrderService) publishOrderPaid(ctx context.Context, orderID int, items []models.LineItem) {
+	total := 0
+	for _, item := range items {
+		total += item.Price * item.Quantity
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, orderEventPublishTimeout)
+	defer cancel()
+
+	event := messaging.OrderPaidEvent{
+		OrderID: orderID,
+		Total:   total,
+		PaidAt:  time.Now().UTC(),
+	}
+
+	if err := s.events.PublishOrderPaid(ctx, event); err != nil {
+		slog.ErrorContext(ctx, "Failed to publish order paid event",
+			"order_id", orderID,
+			"error", err.Error(),
+		)
+		return
+	}
+
+	slog.InfoContext(ctx, "Order paid event published", "order_id", orderID)
 }
 
 // GetOrderForUser returns the caller's own order. userID always comes from

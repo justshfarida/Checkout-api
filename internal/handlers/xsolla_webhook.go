@@ -1,12 +1,17 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 )
+
+// webhookTimeout bounds one Xsolla webhook from start to finish.
+const webhookTimeout = 5 * time.Second
 
 type XsollaWebhook struct {
 	NotificationType string `json:"notification_type"`
@@ -36,6 +41,13 @@ type XsollaWebhookItem struct {
 }
 
 func (h *Handler) XsollaWebhook(w http.ResponseWriter, r *http.Request) {
+	// One deadline for all work in this webhook (DB transaction + publish).
+	// If the DB hangs, give up: the transaction rolls back, Xsolla gets an
+	// error and retries later, and processed_transactions makes that safe.
+	// The handlers below read r.Context(), so attach the deadline to r.
+	ctx, cancel := context.WithTimeout(r.Context(), webhookTimeout)
+	defer cancel()
+	r = r.WithContext(ctx)
 
 	// ReadAll (not a JSON decoder): the signature is computed over the exact
 	// raw bytes. MaxBytesReader caps it at 1 MB like every other body.

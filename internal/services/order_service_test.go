@@ -468,3 +468,52 @@ func TestOrderService_GetOrdersByUserIDCursor(t *testing.T) {
 		}
 	})
 }
+
+func TestOrderService_ProcessXsollaPayment_PublishesOrderPaid(t *testing.T) {
+	items := []models.LineItem{{ItemID: 1, Quantity: 2, Price: 500}, {ItemID: 2, Quantity: 1, Price: 300}}
+	orderRepo := &fakeOrderRepository{orderItems: items}
+	xsollaRepo := &fakeXsollaRepository{processed: true}
+	service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+		&fakeXsollaPaymentService{}, xsollaRepo)
+	events := &fakeEventPublisher{}
+	service.SetEventPublisher(events)
+
+	if err := service.ProcessXsollaPayment(context.Background(), 42, 77); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+
+	if len(events.events) != 1 {
+		t.Fatalf("published %d events, want 1", len(events.events))
+	}
+	got := events.events[0]
+	if got.OrderID != 42 || got.Total != 1300 {
+		t.Errorf("event = %+v, want order 42 with total 1300 (2x500 + 1x300)", got)
+	}
+}
+
+func TestOrderService_ProcessXsollaPayment_DuplicateWebhookPublishesNothing(t *testing.T) {
+	orderRepo := &fakeOrderRepository{orderItems: []models.LineItem{{ItemID: 1, Quantity: 1, Price: 100}}}
+	xsollaRepo := &fakeXsollaRepository{processed: false}
+	service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+		&fakeXsollaPaymentService{}, xsollaRepo)
+	events := &fakeEventPublisher{}
+	service.SetEventPublisher(events)
+
+	_ = service.ProcessXsollaPayment(context.Background(), 1, 77)
+
+	if len(events.events) != 0 {
+		t.Errorf("duplicate webhook published %d events, want 0 (no second email)", len(events.events))
+	}
+}
+
+func TestOrderService_ProcessXsollaPayment_PublishFailureDoesNotFailPayment(t *testing.T) {
+	orderRepo := &fakeOrderRepository{orderItems: []models.LineItem{{ItemID: 1, Quantity: 1, Price: 100}}}
+	xsollaRepo := &fakeXsollaRepository{processed: true}
+	service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+		&fakeXsollaPaymentService{}, xsollaRepo)
+	service.SetEventPublisher(&fakeEventPublisher{err: errFakeDependency})
+
+	if err := service.ProcessXsollaPayment(context.Background(), 1, 77); err != nil {
+		t.Fatalf("err = %v; a broker failure must not fail an already committed payment", err)
+	}
+}

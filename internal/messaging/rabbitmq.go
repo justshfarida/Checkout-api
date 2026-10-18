@@ -27,7 +27,6 @@ const (
 // OrderPaidEvent is the message body: just enough for a worker to do its job.
 type OrderPaidEvent struct {
 	OrderID int       `json:"order_id"`
-	UserID  int       `json:"user_id"`
 	Total   int       `json:"total"`
 	PaidAt  time.Time `json:"paid_at"`
 }

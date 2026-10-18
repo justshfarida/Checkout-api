@@ -120,6 +120,8 @@ func main() {
 		xsollaService,
 		repo,
 	)
+	// Paid orders are announced on RabbitMQ (order_notifications queue).
+	orderService.SetEventPublisher(broker)
 
 	// HANDLERS AND ROUTES
 	h := handlers.NewHandler(
