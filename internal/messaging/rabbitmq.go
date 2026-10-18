@@ -152,6 +152,30 @@ func (r *RabbitMQ) PublishOrderPaid(ctx context.Context, event OrderPaidEvent) e
 	)
 }
 
+// Consume starts receiving messages from a queue. Messages are NOT
+// auto-acknowledged: the caller must Ack or Nack each one, so a worker
+// that crashes mid-job gets its message redelivered instead of lost.
+func (r *RabbitMQ) Consume(queue, consumerTag string, prefetch int) (<-chan amqp.Delivery, error) {
+	// Prefetch: give this worker at most N unacknowledged messages at a time.
+	if err := r.ch.Qos(prefetch, 0, false); err != nil {
+		return nil, fmt.Errorf("set prefetch: %w", err)
+	}
+
+	deliveries, err := r.ch.Consume(
+		queue,
+		consumerTag, // shown in the RabbitMQ UI, e.g. the worker id
+		false,       // autoAck: false = we ack manually after the work is done
+		false,       // exclusive: false = several workers may share the queue
+		false,       // noLocal (not supported by RabbitMQ)
+		false,       // noWait
+		nil,         // args
+	)
+	if err != nil {
+		return nil, fmt.Errorf("start consuming %s: %w", queue, err)
+	}
+	return deliveries, nil
+}
+
 // Close closes the channel and the connection.
 func (r *RabbitMQ) Close() error {
 	if r.ch != nil {
