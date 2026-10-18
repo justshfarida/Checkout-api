@@ -71,8 +71,13 @@ services:
     entrypoint: ["/notification-worker"]   # same image as the API, other program
     environment:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      # Only the database URL from .env, not the whole file: the worker never
+      # needs the Xsolla keys or the JWT secret (least privilege).
+      DATABASE_URL: ${DATABASE_URL}
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      db:
         condition: service_healthy
     restart: unless-stopped                # come back after a crash
   otel-collector:
