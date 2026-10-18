@@ -97,6 +97,18 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+  # Week 12 lecture 2 (webhooks homework, task 5): dedup store for
+  # cmd/webhook-lab with DEDUP=redis. Only the lab uses it.
+  redis:
+    image: redis:7-alpine
+    container_name: farida-checkout-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
   otel-collector:
       image: otel/opentelemetry-collector-contrib:0.147.0
       #tells the Collector to load that file when it starts.
