@@ -83,6 +83,20 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped                # come back after a crash
+  # Exercise 4: second consumer of the order.events fanout exchange. Has its
+  # own queue (order_analytics), so it can be stopped without delaying emails.
+  analytics-worker:
+    build: .
+    entrypoint: ["/analytics-worker"]
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
   otel-collector:
       image: otel/opentelemetry-collector-contrib:0.147.0
       #tells the Collector to load that file when it starts.

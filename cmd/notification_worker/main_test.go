@@ -38,7 +38,14 @@ type fakeDB struct {
 
 func newFakeDB() *fakeDB { return &fakeDB{rows: map[string]bool{}} }
 
-func key(args []any) string { return args[0].(string) + "|" + args[1].(string) }
+// key joins consumer, event type and message id: the table's primary key.
+func key(args []any) string {
+	parts := make([]string, len(args))
+	for i, a := range args {
+		parts[i] = a.(string)
+	}
+	return strings.Join(parts, "|")
+}
 
 func (f *fakeDB) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	if f.err != nil {
@@ -120,7 +127,7 @@ func TestProcess_FirstDeliverySendsEmailAndAcks(t *testing.T) {
 	if *sent != 1 || !ack.acked {
 		t.Fatalf("sent=%d acked=%v, want 1 email and Ack", *sent, ack.acked)
 	}
-	if !db.rows["order.paid|order.paid:42"] {
+	if !db.rows["email|order.paid|order.paid:42"] {
 		t.Error("message not marked processed")
 	}
 }

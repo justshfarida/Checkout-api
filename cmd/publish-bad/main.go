@@ -1,5 +1,6 @@
 // Command publish-bad sends a poison message (a body the worker cannot
-// parse) to order_notifications, to prove it ends up in the DLQ (exercise 3).
+// parse) to the order.events exchange, to prove it ends up in the DLQs
+// (exercise 3).
 //
 // Usage: go run ./cmd/publish-bad
 package main
@@ -34,5 +35,5 @@ func main() {
 	if err := broker.PublishEvent(ctx, "order.paid", id, body); err != nil {
 		log.Fatalf("publish: %v", err)
 	}
-	fmt.Printf("published poison message %s -> %s\n", id, messaging.OrderNotificationsQueue)
+	fmt.Printf("published poison message %s -> %s (every bound queue gets a copy)\n", id, messaging.OrderEventsExchange)
 }

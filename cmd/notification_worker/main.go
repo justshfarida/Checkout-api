@@ -31,6 +31,10 @@ const (
 
 	// eventTypeOrderPaid is part of the dedup key in processed_messages.
 	eventTypeOrderPaid = "order.paid"
+
+	// consumerName is this worker's part of the dedup key: the analytics
+	// worker gets a copy of the same message and dedups it separately.
+	consumerName = "email"
 )
 
 // worker holds what process needs, so tests can swap in fakes.
@@ -145,7 +149,7 @@ func (w *worker) process(ctx context.Context, msg amqp.Delivery) {
 	}
 
 	// Exercise 1: record the message BEFORE the side effect.
-	alreadyDone, err := messaging.BeginProcessing(ctx, w.db, eventTypeOrderPaid, msg.MessageId)
+	alreadyDone, err := messaging.BeginProcessing(ctx, w.db, consumerName, eventTypeOrderPaid, msg.MessageId)
 	if err != nil {
 		w.retryOrDeadLetter(ctx, msg, "dedup check failed: "+err.Error())
 		return
@@ -165,7 +169,7 @@ func (w *worker) process(ctx context.Context, msg amqp.Delivery) {
 		return
 	}
 
-	if err := messaging.MarkProcessed(ctx, w.db, eventTypeOrderPaid, msg.MessageId); err != nil {
+	if err := messaging.MarkProcessed(ctx, w.db, consumerName, eventTypeOrderPaid, msg.MessageId); err != nil {
 		// The email already went out. Ack anyway: retrying would send it
 		// again right away. Logged so it can be investigated.
 		log.Printf("[%s] email sent but marking %s failed: %v", w.id, msg.MessageId, err)
