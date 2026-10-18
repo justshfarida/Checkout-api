@@ -19,6 +19,8 @@ import (
 
 	_ "checkout-api/docs"
 
+	"checkout-api/internal/messaging"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -43,6 +45,7 @@ func main() {
 	xsollaMerchantID := mustGetEnv("XSOLLA_MERCHANT_ID")
 	xsollaAPIKey := mustGetEnv("XSOLLA_API_KEY")
 	xsollaWebhookSecret := mustGetEnv("XSOLLA_WEBHOOK_SECRET")
+	rabbitURL := mustGetEnv("RABBITMQ_URL")
 
 	if err := validateJWTSecret(jwtSecret); err != nil {
 		log.Fatal(err)
@@ -71,6 +74,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize telemetry: %v", err)
 	}
+	// MESSAGE BROKER
+	// Fail fast like the database: the API should not start half-configured.
+	broker, err := messaging.Connect(rabbitURL)
+	if err != nil {
+		log.Fatalf("failed to connect to rabbitmq: %v", err)
+	}
+	defer broker.Close()
+	log.Println("Connected to RabbitMQ")
 
 	// REPOSITORY
 	repo := postgres.NewPostgresRepository(pool)
@@ -209,7 +220,10 @@ func main() {
 		log.Printf("telemetry shutdown error: %v", err)
 	}
 	cancelTelemetry()
-
+	// Close the broker after the HTTP server: no request can publish anymore.
+	if err := broker.Close(); err != nil {
+		log.Printf("rabbitmq close error: %v", err)
+	}
 	// Close database connections last, after in-flight requests have
 	// finished. (The deferred pool.Close above is a safety net; calling
 	// Close twice is safe.)
