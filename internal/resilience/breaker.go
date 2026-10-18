@@ -82,8 +82,9 @@ func (b *Breaker) Allow() error {
 		if b.now().Sub(b.openedAt) < b.cooldown {
 			return ErrCircuitOpen
 		}
+		//if 30 secs have passed 
 		b.setState(HalfOpen)
-		b.trialInFlight = true
+		b.trialInFlight = true //one probe request is running 
 		return nil
 
 	case HalfOpen:
