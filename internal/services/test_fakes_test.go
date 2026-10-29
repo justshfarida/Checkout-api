@@ -12,34 +12,6 @@ import (
 var errFakeDependency = errors.New("fake dependency error")
 
 // ======================================================
-// FAKE PAYMENT PROCESSOR
-// ======================================================
-
-type fakePaymentProcessor struct {
-	result PaymentResult
-	err    error
-
-	called bool
-	amount int
-}
-
-func (f *fakePaymentProcessor) ProcessPayment(
-	amount int,
-) (PaymentResult, error) {
-	f.called = true
-	f.amount = amount
-
-	if f.err != nil {
-		return PaymentResult{}, f.err
-	}
-
-	return f.result, nil
-}
-
-// Compile-time check that the fake satisfies the interface.
-var _ PaymentProcessor = (*fakePaymentProcessor)(nil)
-
-// ======================================================
 // FAKE ITEM REPOSITORY
 // ======================================================
 

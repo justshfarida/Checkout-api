@@ -12,7 +12,7 @@ import (
 func TestOrderService_GetOrderForUser(t *testing.T) {
 	t.Run("asks the repository for the caller's own order", func(t *testing.T) {
 		repo := &fakeOrderRepository{orderForUser: &models.UserOrder{ID: 42, UserID: 7}}
-		service, _ := newTestOrderService(repo, &fakeCartRepository{}, &fakeItemRepository{},
+		service := newTestOrderService(repo, &fakeCartRepository{}, &fakeItemRepository{},
 			&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 		got, err := service.GetOrderForUser(context.Background(), 42, 7)
@@ -28,7 +28,7 @@ func TestOrderService_GetOrderForUser(t *testing.T) {
 
 	t.Run("not found or not yours becomes ErrOrderNotFound", func(t *testing.T) {
 		repo := &fakeOrderRepository{orderForUserErr: repositories.ErrOrderNotFound}
-		service, _ := newTestOrderService(repo, &fakeCartRepository{}, &fakeItemRepository{},
+		service := newTestOrderService(repo, &fakeCartRepository{}, &fakeItemRepository{},
 			&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 		if _, err := service.GetOrderForUser(context.Background(), 42, 8); !errors.Is(err, ErrOrderNotFound) {
@@ -38,7 +38,7 @@ func TestOrderService_GetOrderForUser(t *testing.T) {
 
 	t.Run("database errors are passed through", func(t *testing.T) {
 		repo := &fakeOrderRepository{orderForUserErr: errFakeDependency}
-		service, _ := newTestOrderService(repo, &fakeCartRepository{}, &fakeItemRepository{},
+		service := newTestOrderService(repo, &fakeCartRepository{}, &fakeItemRepository{},
 			&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 		if _, err := service.GetOrderForUser(context.Background(), 42, 7); !errors.Is(err, errFakeDependency) {

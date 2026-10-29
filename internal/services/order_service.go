@@ -11,15 +11,8 @@ import (
 	"log/slog"
 )
 
-type PaymentResult struct {
-	Success       bool
-	TransactionID string
-	Error         string
-}
-
 type CreateOrderResult struct {
-	Order *models.Order
-	// Payment       PaymentResult
+	Order         *models.Order
 	XsollaOrderID int    `json:"xsolla_order_id"`
 	PaymentURL    string `json:"payment_url"`
 }
@@ -35,7 +28,6 @@ type OrderService struct {
 	repo          repositories.OrderRepository
 	itemRepo      repositories.ItemRepository
 	cartRepo      repositories.CartRepository
-	payment       PaymentProcessor
 	xsollaService XsollaPaymentService
 	xsollaRep     repositories.XsollaRepository
 }
@@ -44,7 +36,6 @@ func NewOrderService(
 	repo repositories.OrderRepository,
 	cartRepo repositories.CartRepository,
 	itemRepo repositories.ItemRepository,
-	payment PaymentProcessor,
 	xsollaService XsollaPaymentService,
 	xsollaRep repositories.XsollaRepository,
 
@@ -53,7 +44,6 @@ func NewOrderService(
 		repo:          repo,
 		cartRepo:      cartRepo,
 		itemRepo:      itemRepo,
-		payment:       payment,
 		xsollaService: xsollaService,
 		xsollaRep:     xsollaRep,
 	}

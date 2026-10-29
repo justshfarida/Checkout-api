@@ -111,8 +111,6 @@ func main() {
 		jwtSecretBytes,
 	)
 
-	paymentProcessor := services.MockPaymentProcessor{}
-
 	xsollaService := services.NewXsollaService(
 		xsollaProjectID,
 		xsollaMerchantID,
@@ -126,7 +124,6 @@ func main() {
 		repo,
 		repo,
 		repo,
-		paymentProcessor,
 		xsollaService,
 		repo,
 	)
