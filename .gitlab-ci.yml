@@ -8,7 +8,7 @@ stages:
 
 format:
   stage: format
-  image: golang:1.26.9
+  image: golang:1.26.10
 
   script:
     - test -z "$(gofmt -l .)"
@@ -16,7 +16,7 @@ format:
 # --- Security: block on known CVEs and leaked secrets; gosec reports only for now.
 govulncheck:
   stage: security
-  image: golang:1.26.9
+  image: golang:1.26.10
   script:
     - go install golang.org/x/vuln/cmd/govulncheck@latest
     - govulncheck ./...            # non-zero exit on a reachable vulnerability -> blocks
@@ -36,7 +36,7 @@ gitleaks:
 
 gosec:
   stage: security
-  image: golang:1.26.9
+  image: golang:1.26.10
   script:
     - go install github.com/securego/gosec/v2/cmd/gosec@latest
     - gosec -severity medium ./...
@@ -44,7 +44,7 @@ gosec:
 
 unit_tests:
   stage: test
-  image: golang:1.26.9
+  image: golang:1.26.10
 
   script:
     - go test -race ./...
@@ -64,7 +64,7 @@ unit_tests:
 
 build:
   stage: build
-  image: golang:1.26.9
+  image: golang:1.26.10
 
   script:
     - go build ./...

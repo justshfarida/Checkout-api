@@ -48,6 +48,7 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:lates
 | Tool | Before | After | What was done |
 |---|---|---|---|
 | govulncheck | **38** reachable vulnerabilities (Go stdlib 1.26.0) + `x/net` v0.59.0 | **0** | Go 1.26.9 (`go.mod`, Dockerfile, CI), `x/net` v0.60.0 |
+| govulncheck (2026-10-30) | **1** new stdlib vulnerability GO-2026-6809 (`crypto/x509`, reachable via `amqp091.Dial`), caught by the blocking CI job | **0** | Go 1.26.9 → 1.26.10 (`go.mod`, Dockerfile, CI) |
 | gosec | 6 issues | **0** (4 `#nosec` with reasons) | Refresh cookie was `Secure: false` → fixed (one helper, Secure by default, `COOKIE_SECURE=false` only for local HTTP) |
 | gitleaks | 32 leaks in all 1,098 commits; **1 in this branch** | **0** in this branch | See §5 |
 | trivy (new image) | — | **0 HIGH, 0 CRITICAL** (OS: 5 packages; Go binary) | Distroless image, see §5 |
@@ -102,7 +103,7 @@ The other 31 gitleaks hits are in **other students' branches** (test fixtures, R
 
 ### Container
 
-* Build stage `golang:1.26.9`, runtime `gcr.io/distroless/static-debian12:nonroot`.
+* Build stage `golang:1.26.10`, runtime `gcr.io/distroless/static-debian12:nonroot`.
 * Static binary (`CGO_ENABLED=0`, `-trimpath -ldflags="-s -w"`), runs as `nonroot:nonroot`, no shell, no package manager.
 * `.dockerignore` excludes `.git`, `.env*`, keys, the k8s secret file and build leftovers.
 * trivy: **0 HIGH / 0 CRITICAL**.

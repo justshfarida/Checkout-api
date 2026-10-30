@@ -1,5 +1,5 @@
 # ---- Build stage: full Go toolchain. Used to compile, never shipped. ----
-FROM golang:1.26.9 AS build
+FROM golang:1.26.10 AS build
 WORKDIR /src
 
 # Download modules first so this layer is cached until go.mod/go.sum change.
