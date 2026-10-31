@@ -91,6 +91,7 @@ type OrderService interface {
 	CreateOrder(ctx context.Context, userID int) (*services.CreateOrderResult, error)
 	GetOrdersByUserIDOffset(ctx context.Context, userID int, limit int, offset int) (services.OrderOffsetResult, error)
 	GetOrdersByUserIDCursor(ctx context.Context, userID int, rawCursor string, limit int) (services.OrderCursorResult, error)
+	GetOrderForUser(ctx context.Context, orderID int, userID int) (*models.UserOrder, error)
 	ProcessXsollaPayment(ctx context.Context, orderID int, transactionID int64) error
 	UpdateOrderStatus(ctx context.Context, orderID int, status string) error
 }
@@ -109,13 +110,24 @@ type Handler struct {
 	validate         *validator.Validate
 	idempotencyMu    sync.Mutex
 	idempotencyCache map[string]*IdempotencyRecord
+	// loginLimiter slows down password guessing on POST /login.
+	loginLimiter *middlewares.RateLimiter
+	// secureCookies sets the Secure flag on the refresh-token cookie.
+	// True by default (fail closed); only local plain-HTTP dev turns it off.
+	secureCookies bool
 }
 
 type IdempotencyRecord struct {
 	Response   []byte
 	StatusCode int
 	Expiry     time.Time
+	// InProgress is true while the first request with this key is still
+	// running; a duplicate arriving meanwhile gets 409 Conflict.
+	InProgress bool
 }
+
+// loginAttemptsPerMinute is how many logins one IP may try per minute.
+const loginAttemptsPerMinute = 10
 
 func NewHandler(
 	authService AuthService,
@@ -137,7 +149,15 @@ func NewHandler(
 		jwtSecret:        jwtSecret,
 		validate:         validator.New(),
 		idempotencyCache: make(map[string]*IdempotencyRecord),
+		secureCookies:    true,
+		loginLimiter:     middlewares.NewRateLimiter(loginAttemptsPerMinute, time.Minute),
 	}
+}
+
+// SetSecureCookies controls the Secure flag on auth cookies. Keep it true
+// everywhere except local development over plain HTTP.
+func (h *Handler) SetSecureCookies(secure bool) {
+	h.secureCookies = secure
 }
 
 func (h *Handler) Routes() *http.ServeMux {
@@ -189,6 +209,10 @@ func (h *Handler) Routes() *http.ServeMux {
 		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserOrders), h.jwtSecret),
 	)
 	mux.Handle(
+		"GET /user/orders/{order_id}",
+		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserOrder), h.jwtSecret),
+	)
+	mux.Handle(
 		"GET /user/orders/cursor",
 		middlewares.AuthMiddleware(http.HandlerFunc(h.GetUserOrdersCursor), h.jwtSecret),
 	)
@@ -202,7 +226,7 @@ func (h *Handler) Routes() *http.ServeMux {
 	mux.HandleFunc("GET /items/{item_id}", h.GetItemByID)
 
 	mux.HandleFunc("POST /signup", h.CreateUser)
-	mux.HandleFunc("POST /login", h.LoginUser)
+	mux.Handle("POST /login", h.loginLimiter.Middleware(http.HandlerFunc(h.LoginUser)))
 	mux.HandleFunc("POST /token", h.IssueJWT)
 	mux.HandleFunc("POST /logout", h.Logout)
 	return mux

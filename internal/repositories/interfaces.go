@@ -90,6 +90,14 @@ type OrderRepository interface {
 		lastID int,
 		limit int,
 	) ([]models.UserOrder, error)
+
+	// GetOrderForUser returns one order only if it belongs to userID.
+	// Missing and someone else's order both give ErrOrderNotFound.
+	GetOrderForUser(
+		ctx context.Context,
+		orderID int,
+		userID int,
+	) (*models.UserOrder, error)
 	MarkOrderPaid(
 		ctx context.Context,
 		orderID int,

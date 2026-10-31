@@ -12,34 +12,6 @@ import (
 var errFakeDependency = errors.New("fake dependency error")
 
 // ======================================================
-// FAKE PAYMENT PROCESSOR
-// ======================================================
-
-type fakePaymentProcessor struct {
-	result PaymentResult
-	err    error
-
-	called bool
-	amount int
-}
-
-func (f *fakePaymentProcessor) ProcessPayment(
-	amount int,
-) (PaymentResult, error) {
-	f.called = true
-	f.amount = amount
-
-	if f.err != nil {
-		return PaymentResult{}, f.err
-	}
-
-	return f.result, nil
-}
-
-// Compile-time check that the fake satisfies the interface.
-var _ PaymentProcessor = (*fakePaymentProcessor)(nil)
-
-// ======================================================
 // FAKE ITEM REPOSITORY
 // ======================================================
 
@@ -272,6 +244,12 @@ type fakeOrderRepository struct {
 	orderItemsOrderID int
 	orderItemsCalled  bool
 
+	// GetOrderForUser
+	orderForUser       *models.UserOrder
+	orderForUserErr    error
+	orderForUserID     int
+	orderForUserUserID int
+
 	// GetOrdersByUserIDOffset / Cursor
 	userOrders       []models.UserOrder
 	userOrdersErr    error
@@ -373,6 +351,16 @@ func (f *fakeOrderRepository) GetOrdersByUserIDCursor(
 	}
 
 	return f.userOrders, nil
+}
+
+func (f *fakeOrderRepository) GetOrderForUser(
+	ctx context.Context,
+	orderID int,
+	userID int,
+) (*models.UserOrder, error) {
+	f.orderForUserID = orderID
+	f.orderForUserUserID = userID
+	return f.orderForUser, f.orderForUserErr
 }
 
 var _ repositories.OrderRepository = (*fakeOrderRepository)(nil)

@@ -439,6 +439,10 @@ type fakeOrderService struct {
 	processOrderID       int
 	processTransactionID int64
 
+	// GetOrderForUser: orders by ID; only returned to their owner,
+	// exactly like the repository's WHERE id = $1 AND user_id = $2.
+	ordersByID map[int]models.UserOrder
+
 	// UpdateOrderStatus
 	updateErr     error
 	updateCalled  bool
@@ -490,6 +494,18 @@ func (f *fakeOrderService) GetOrdersByUserIDCursor(
 
 	return f.cursorResult,
 		f.cursorErr
+}
+
+func (f *fakeOrderService) GetOrderForUser(
+	ctx context.Context,
+	orderID int,
+	userID int,
+) (*models.UserOrder, error) {
+	order, ok := f.ordersByID[orderID]
+	if !ok || order.UserID != userID {
+		return nil, services.ErrOrderNotFound
+	}
+	return &order, nil
 }
 
 func (f *fakeOrderService) ProcessXsollaPayment(

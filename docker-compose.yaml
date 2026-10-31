@@ -4,6 +4,9 @@ services:
   app:
     build: .
     container_name: farida-checkout-app
+    # Secrets come from .env at runtime; the image itself contains none.
+    env_file:
+      - .env
     ports:
       - "8080:8080"
     environment:
@@ -15,8 +18,13 @@ services:
       OTEL_SERVICE_NAME: checkout-api
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev,service.version=1.0.0
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # Where the API finds the message broker. "rabbitmq" is the service
+      # name below; Docker's internal DNS resolves it to that container.
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
     depends_on:
         db:
+          condition: service_healthy
+        rabbitmq:
           condition: service_healthy
   db:
     image: postgres:18-alpine
@@ -37,6 +45,70 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  # Message broker for async work (order events -> workers).
+  rabbitmq:
+    image: rabbitmq:3-management        # "-management" adds the web UI
+    container_name: farida-checkout-rabbitmq
+    ports:
+      - "5672:5672"     # AMQP: the port Go code connects to
+      - "15672:15672"   # management UI: http://localhost:15672
+    environment:
+      RABBITMQ_DEFAULT_USER: guest      # local dev only
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      # Queues and persistent messages survive "docker compose down/up".
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  # Consumes order.paid events and "sends" confirmation emails.
+  # No container_name on purpose: allows several copies with
+  #   docker compose up -d --scale notification-worker=2
+  notification-worker:
+    build: .
+    entrypoint: ["/notification-worker"]   # same image as the API, other program
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      # Only the database URL from .env, not the whole file: the worker never
+      # needs the Xsolla keys or the JWT secret (least privilege).
+      DATABASE_URL: ${DATABASE_URL}
+      # Exercise 3 demo: "true" makes every email fail so you can watch the
+      # retries and the DLQ. Off unless you set it in your shell.
+      SIMULATE_EMAIL_FAILURE: ${SIMULATE_EMAIL_FAILURE:-false}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped                # come back after a crash
+  # Exercise 4: second consumer of the order.events fanout exchange. Has its
+  # own queue (order_analytics), so it can be stopped without delaying emails.
+  analytics-worker:
+    build: .
+    entrypoint: ["/analytics-worker"]
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+  # Week 12 lecture 2 (webhooks homework, task 5): dedup store for
+  # cmd/webhook-lab with DEDUP=redis. Only the lab uses it.
+  redis:
+    image: redis:7-alpine
+    container_name: farida-checkout-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
   otel-collector:
       image: otel/opentelemetry-collector-contrib:0.147.0
       #tells the Collector to load that file when it starts.
@@ -50,3 +122,4 @@ services:
       restart: unless-stopped
 volumes:
   postgres_data:
+  rabbitmq_data:

@@ -4,7 +4,6 @@ import (
 	"checkout-api/internal/middlewares"
 	"checkout-api/internal/services"
 	"checkout-api/internal/validation"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -29,16 +28,7 @@ func (h *Handler) LoginUser(
 ) {
 	var req AuthRequest
 
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-
-	if err := dec.Decode(&req); err != nil {
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"INVALID_JSON",
-			"Invalid request body",
-		)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -102,19 +92,7 @@ func (h *Handler) LoginUser(
 		return
 	}
 
-	http.SetCookie(
-		w,
-		&http.Cookie{
-			Name:     "refresh_token",
-			Value:    refreshToken,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   false,
-			SameSite: http.SameSiteLaxMode,
-			Expires:  refreshExpiresAt,
-			MaxAge:   int((7 * 24 * time.Hour).Seconds()),
-		},
-	)
+	h.setRefreshCookie(w, refreshToken, refreshExpiresAt, int((7 * 24 * time.Hour).Seconds()))
 
 	writeJSON(
 		w,
@@ -143,16 +121,7 @@ func (h *Handler) CreateUser(
 ) {
 	var req AuthRequest
 
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-
-	if err := dec.Decode(&req); err != nil {
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"INVALID_JSON",
-			"Invalid request body",
-		)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -266,19 +235,7 @@ func (h *Handler) IssueJWT(
 		return
 	}
 
-	http.SetCookie(
-		w,
-		&http.Cookie{
-			Name:     "refresh_token",
-			Value:    newRefreshToken,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   false,
-			SameSite: http.SameSiteLaxMode,
-			Expires:  newRefreshExpiresAt,
-			MaxAge:   int((7 * 24 * time.Hour).Seconds()),
-		},
-	)
+	h.setRefreshCookie(w, newRefreshToken, newRefreshExpiresAt, int((7 * 24 * time.Hour).Seconds()))
 
 	writeJSON(
 		w,
@@ -310,19 +267,7 @@ func (h *Handler) Logout(
 		}
 	}
 
-	http.SetCookie(
-		w,
-		&http.Cookie{
-			Name:     "refresh_token",
-			Value:    "",
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   false,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   -1,
-			Expires:  time.Unix(0, 0),
-		},
-	)
+	h.setRefreshCookie(w, "", time.Unix(0, 0), -1)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -393,4 +338,27 @@ func (h *Handler) GetUserInventory(
 		http.StatusOK,
 		inventory,
 	)
+}
+
+// setRefreshCookie writes the refresh-token cookie. HttpOnly keeps it away
+// from JavaScript (XSS), SameSite=Lax blocks cross-site POSTs (CSRF), and
+// Secure keeps it off plain HTTP unless COOKIE_SECURE=false (local dev).
+func (h *Handler) setRefreshCookie(
+	w http.ResponseWriter,
+	value string,
+	expires time.Time,
+	maxAge int,
+) {
+	// #nosec G124 -- Secure is h.secureCookies: true by default, false only when
+	// COOKIE_SECURE=false for local HTTP; HttpOnly and SameSite are always set.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.secureCookies,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  expires,
+		MaxAge:   maxAge,
+	})
 }

@@ -19,6 +19,9 @@ import (
 
 	_ "checkout-api/docs"
 
+	"checkout-api/internal/messaging"
+	"checkout-api/internal/outbox"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -43,6 +46,11 @@ func main() {
 	xsollaMerchantID := mustGetEnv("XSOLLA_MERCHANT_ID")
 	xsollaAPIKey := mustGetEnv("XSOLLA_API_KEY")
 	xsollaWebhookSecret := mustGetEnv("XSOLLA_WEBHOOK_SECRET")
+	rabbitURL := mustGetEnv("RABBITMQ_URL")
+
+	if err := validateJWTSecret(jwtSecret); err != nil {
+		log.Fatal(err)
+	}
 
 	jwtSecretBytes := []byte(jwtSecret)
 	ctx := context.Background()
@@ -67,6 +75,23 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to initialize telemetry: %v", err)
 	}
+	// OUTBOX RELAY (exercise 2)
+	// Payments write their events to the outbox table; this background loop
+	// publishes them to RabbitMQ. The API does not need the broker to start:
+	// if RabbitMQ is down, events simply wait in the outbox.
+	relay := outbox.NewRelay(outbox.NewPostgresStore(pool), func() (outbox.Publisher, error) {
+		broker, err := messaging.Connect(rabbitURL)
+		if err != nil {
+			return nil, err
+		}
+		return broker, nil
+	})
+	relayCtx, stopRelay := context.WithCancel(context.Background())
+	relayDone := make(chan struct{})
+	go func() {
+		defer close(relayDone)
+		relay.Run(relayCtx)
+	}()
 
 	// REPOSITORY
 	repo := postgres.NewPostgresRepository(pool)
@@ -86,8 +111,6 @@ func main() {
 		jwtSecretBytes,
 	)
 
-	paymentProcessor := services.MockPaymentProcessor{}
-
 	xsollaService := services.NewXsollaService(
 		xsollaProjectID,
 		xsollaMerchantID,
@@ -101,7 +124,6 @@ func main() {
 		repo,
 		repo,
 		repo,
-		paymentProcessor,
 		xsollaService,
 		repo,
 	)
@@ -116,15 +138,25 @@ func main() {
 		xsollaService,
 		jwtSecretBytes,
 	)
+	// Refresh cookie is Secure (HTTPS only) unless explicitly disabled for
+	// local development over plain HTTP. Anything but "false" keeps it on.
+	h.SetSecureCookies(os.Getenv("COOKIE_SECURE") != "false")
 
 	mux := h.Routes()
 	mux.HandleFunc("GET /telemetry-test-error", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Intentional telemetry test error", http.StatusInternalServerError)
 	})
+	// Demo endpoint for the panic & recover pattern: the panic is caught by
+	// WithRecover, the client gets a 500, and the server keeps running.
+	mux.HandleFunc("GET /telemetry-test-panic", func(w http.ResponseWriter, r *http.Request) {
+		panic("intentional test panic")
+	})
 
 	//every request gets a span, (method, route,  status)
+	// WithRecover sits inside otelhttp, so a recovered panic is still recorded
+	// on the request's span (status 500) and its log carries the trace ID.
 	instrumentedHandler := otelhttp.NewHandler(
-		middlewares.CORS(mux, frontendURL),
+		middlewares.WithRecover(middlewares.SecurityHeaders(middlewares.CORS(mux, frontendURL))),
 		"http.server",
 		otelhttp.WithFilter(func(r *http.Request) bool {
 			return r.URL.Path != "/health"
@@ -195,7 +227,11 @@ func main() {
 		log.Printf("telemetry shutdown error: %v", err)
 	}
 	cancelTelemetry()
-
+	// Stop the outbox relay after the HTTP server (no new payments can come
+	// in) and before closing the database it reads from. Unsent events stay
+	// in the outbox and are published after the next start.
+	stopRelay()
+	<-relayDone
 	// Close database connections last, after in-flight requests have
 	// finished. (The deferred pool.Close above is a safety net; calling
 	// Close twice is safe.)

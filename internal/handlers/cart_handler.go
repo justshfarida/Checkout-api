@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -72,20 +71,7 @@ func (h *Handler) UpsertCartItem(
 
 	var req UpsertCartItemRequest
 
-	dec :=
-		json.NewDecoder(
-			r.Body,
-		)
-
-	dec.DisallowUnknownFields()
-
-	if err := dec.Decode(&req); err != nil {
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"INVALID_JSON",
-			"Invalid request body",
-		)
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 

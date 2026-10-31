@@ -4,20 +4,15 @@ import (
 	"checkout-api/internal/models"
 	"checkout-api/internal/repositories"
 	"checkout-api/internal/validation"
+
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 )
 
-type PaymentResult struct {
-	Success       bool
-	TransactionID string
-	Error         string
-}
-
 type CreateOrderResult struct {
-	Order *models.Order
-	// Payment       PaymentResult
+	Order         *models.Order
 	XsollaOrderID int    `json:"xsolla_order_id"`
 	PaymentURL    string `json:"payment_url"`
 }
@@ -33,7 +28,6 @@ type OrderService struct {
 	repo          repositories.OrderRepository
 	itemRepo      repositories.ItemRepository
 	cartRepo      repositories.CartRepository
-	payment       PaymentProcessor
 	xsollaService XsollaPaymentService
 	xsollaRep     repositories.XsollaRepository
 }
@@ -42,15 +36,14 @@ func NewOrderService(
 	repo repositories.OrderRepository,
 	cartRepo repositories.CartRepository,
 	itemRepo repositories.ItemRepository,
-	payment PaymentProcessor,
 	xsollaService XsollaPaymentService,
 	xsollaRep repositories.XsollaRepository,
+
 ) *OrderService {
 	return &OrderService{
 		repo:          repo,
 		cartRepo:      cartRepo,
 		itemRepo:      itemRepo,
-		payment:       payment,
 		xsollaService: xsollaService,
 		xsollaRep:     xsollaRep,
 	}
@@ -313,13 +306,35 @@ func (s *OrderService) ProcessXsollaPayment(
 	}
 
 	// Xsolla retries webhooks; a transaction that was already handled is
-	// acknowledged without changing anything.
+	// acknowledged without changing anything, and without a second event.
 	if !processed {
 		slog.InfoContext(ctx, "Duplicate payment webhook ignored",
 			"order_id", orderID,
 			"transaction_id", transactionID,
 		)
+		return nil
 	}
 
+	// The payment is committed, and the "order paid" event was written to
+	// the outbox in the same transaction. The outbox relay publishes it to
+	// RabbitMQ; nothing to do here (exercise 2: transactional outbox).
 	return nil
+}
+
+// GetOrderForUser returns the caller's own order. userID always comes from
+// the verified JWT, never from the request, and the repository filters by
+// it, so a user can't read another user's order by changing the ID.
+func (s *OrderService) GetOrderForUser(
+	ctx context.Context,
+	orderID int,
+	userID int,
+) (*models.UserOrder, error) {
+	order, err := s.repo.GetOrderForUser(ctx, orderID, userID)
+	if errors.Is(err, repositories.ErrOrderNotFound) {
+		return nil, ErrOrderNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return order, nil
 }

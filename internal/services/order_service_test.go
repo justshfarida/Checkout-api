@@ -10,26 +10,21 @@ import (
 	"checkout-api/internal/validation"
 )
 
-// newTestOrderService wires OrderService with fakes. The legacy
-// PaymentProcessor is no longer used by CreateOrder (payment now goes
-// through Xsolla), so it is passed as a fake that must never be called.
+// newTestOrderService wires OrderService with fakes.
 func newTestOrderService(
 	orderRepo *fakeOrderRepository,
 	cartRepo *fakeCartRepository,
 	itemRepo *fakeItemRepository,
 	xsolla *fakeXsollaPaymentService,
 	xsollaRepo *fakeXsollaRepository,
-) (*OrderService, *fakePaymentProcessor) {
-	payment := &fakePaymentProcessor{}
-
+) *OrderService {
 	return NewOrderService(
 		orderRepo,
 		cartRepo,
 		itemRepo,
-		payment,
 		xsolla,
 		xsollaRepo,
-	), payment
+	)
 }
 
 func TestOrderService_CreateOrder(t *testing.T) {
@@ -178,7 +173,7 @@ func TestOrderService_CreateOrder(t *testing.T) {
 				err:      tt.xsollaErr,
 			}
 
-			service, payment := newTestOrderService(
+			service := newTestOrderService(
 				orderRepo, cartRepo, itemRepo, xsolla, &fakeXsollaRepository{},
 			)
 
@@ -194,9 +189,6 @@ func TestOrderService_CreateOrder(t *testing.T) {
 			if xsolla.called != tt.wantXsollaCalled {
 				t.Errorf("Xsolla CreatePayment called = %v, want %v",
 					xsolla.called, tt.wantXsollaCalled)
-			}
-			if payment.called {
-				t.Error("legacy payment processor must not be called; payment is confirmed by the Xsolla webhook")
 			}
 
 			if tt.wantErr != nil {
@@ -284,7 +276,7 @@ func TestOrderService_ProcessXsollaPayment(t *testing.T) {
 			orderRepo := &fakeOrderRepository{orderItems: tt.orderItems, orderItemsErr: tt.orderItemsErr}
 			xsollaRepo := &fakeXsollaRepository{processed: true, err: tt.processErr}
 
-			service, _ := newTestOrderService(
+			service := newTestOrderService(
 				orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
 				&fakeXsollaPaymentService{}, xsollaRepo,
 			)
@@ -320,7 +312,7 @@ func TestOrderService_ProcessXsollaPayment_DuplicateWebhookIsNotAnError(t *testi
 	orderRepo := &fakeOrderRepository{orderItems: []models.LineItem{{ItemID: 1, Quantity: 1, Price: 100}}}
 	xsollaRepo := &fakeXsollaRepository{processed: false}
 
-	service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+	service := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
 		&fakeXsollaPaymentService{}, xsollaRepo)
 
 	if err := service.ProcessXsollaPayment(context.Background(), 1, 77); err != nil {
@@ -331,7 +323,7 @@ func TestOrderService_ProcessXsollaPayment_DuplicateWebhookIsNotAnError(t *testi
 func TestOrderService_UpdateOrderStatus(t *testing.T) {
 	t.Run("forwards order ID and status", func(t *testing.T) {
 		orderRepo := &fakeOrderRepository{}
-		service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+		service := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
 			&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 		if err := service.UpdateOrderStatus(context.Background(), 12, "canceled"); err != nil {
@@ -345,7 +337,7 @@ func TestOrderService_UpdateOrderStatus(t *testing.T) {
 
 	t.Run("returns repository error", func(t *testing.T) {
 		orderRepo := &fakeOrderRepository{updateErr: errFakeDependency}
-		service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+		service := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
 			&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 		if err := service.UpdateOrderStatus(context.Background(), 12, "canceled"); !errors.Is(err, errFakeDependency) {
@@ -374,7 +366,7 @@ func TestOrderService_GetOrdersByUserIDOffset(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			orders := []models.UserOrder{{ID: 1, UserID: 3}}
 			orderRepo := &fakeOrderRepository{userOrders: orders, userOrdersErr: tt.repoErr}
-			service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+			service := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
 				&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 			got, err := service.GetOrdersByUserIDOffset(context.Background(), 3, tt.limit, tt.offset)
@@ -408,7 +400,7 @@ func TestOrderService_GetOrdersByUserIDCursor(t *testing.T) {
 	t.Run("more rows than limit: trims page and returns cursor of last returned order", func(t *testing.T) {
 		// Repository is asked for limit+1 rows to detect another page.
 		orderRepo := &fakeOrderRepository{userOrders: ordersN(3)}
-		service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+		service := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
 			&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 		got, err := service.GetOrdersByUserIDCursor(context.Background(), 1, "", 2)
@@ -429,7 +421,7 @@ func TestOrderService_GetOrdersByUserIDCursor(t *testing.T) {
 
 	t.Run("last page has no cursor", func(t *testing.T) {
 		orderRepo := &fakeOrderRepository{userOrders: ordersN(2)}
-		service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+		service := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
 			&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 		got, err := service.GetOrdersByUserIDCursor(context.Background(), 1, EncodeCursor(5), 2)
@@ -446,7 +438,7 @@ func TestOrderService_GetOrdersByUserIDCursor(t *testing.T) {
 
 	t.Run("invalid cursor returns ErrInvalidCursor without querying", func(t *testing.T) {
 		orderRepo := &fakeOrderRepository{}
-		service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+		service := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
 			&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 		_, err := service.GetOrdersByUserIDCursor(context.Background(), 1, "%%%not-base64", 2)
@@ -460,7 +452,7 @@ func TestOrderService_GetOrdersByUserIDCursor(t *testing.T) {
 
 	t.Run("repository error is returned", func(t *testing.T) {
 		orderRepo := &fakeOrderRepository{userOrdersErr: errFakeDependency}
-		service, _ := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
+		service := newTestOrderService(orderRepo, &fakeCartRepository{}, &fakeItemRepository{},
 			&fakeXsollaPaymentService{}, &fakeXsollaRepository{})
 
 		if _, err := service.GetOrdersByUserIDCursor(context.Background(), 1, "", 2); !errors.Is(err, errFakeDependency) {

@@ -210,7 +210,35 @@ func (r *PostgresRepository) ProcessXsollaPayment(
 		return false, err
 	}
 
-	// 8. Commit everything.
+	// 8. Transactional outbox (exercise 2): record the "order paid" event in
+	// the SAME transaction. If this commit succeeds the event will be
+	// published (by the outbox relay), even if RabbitMQ is down right now;
+	// if it rolls back, the event never existed. The message id is stable,
+	// so the consumer can recognise duplicates.
+	_, err = tx.Exec(
+		ctx,
+		`
+		INSERT INTO outbox (event_type, message_id, payload)
+		SELECT
+			'order.paid',
+			'order.paid:' || o.id,
+			jsonb_build_object(
+				'order_id', o.id,
+				'user_id',  o.user_id,
+				'total',    o.total,
+				'paid_at',  now()
+			)
+		FROM orders o
+		WHERE o.id = $1
+		ON CONFLICT (message_id) DO NOTHING
+		`,
+		orderID,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	// 9. Commit everything.
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}

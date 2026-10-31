@@ -1,19 +1,50 @@
 stages:
   - format
+  - security
   - test
   - build
   - docker
+  - scan
 
 format:
   stage: format
-  image: golang:1.26.8
+  image: golang:1.26.10
 
   script:
     - test -z "$(gofmt -l .)"
 
+# --- Security: block on known CVEs and leaked secrets; gosec reports only for now.
+govulncheck:
+  stage: security
+  image: golang:1.26.10
+  script:
+    - go install golang.org/x/vuln/cmd/govulncheck@latest
+    - govulncheck ./...            # non-zero exit on a reachable vulnerability -> blocks
+
+gitleaks:
+  stage: security
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+  variables:
+    GIT_DEPTH: 0                   # full history of this branch, not just the last commits
+  script:
+    # HEAD = this branch's history only (not every student's branch).
+    # Accepted findings are listed with a reason in .gitleaksignore.
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - gitleaks detect --source . --log-opts="HEAD" --redact -v
+
+gosec:
+  stage: security
+  image: golang:1.26.10
+  script:
+    - go install github.com/securego/gosec/v2/cmd/gosec@latest
+    - gosec -severity medium ./...
+  allow_failure: true              # reporting only until 2026-11-01, then blocking
+
 unit_tests:
   stage: test
-  image: golang:1.26.8
+  image: golang:1.26.10
 
   script:
     - go test -race ./...
@@ -33,7 +64,7 @@ unit_tests:
 
 build:
   stage: build
-  image: golang:1.26.8
+  image: golang:1.26.10
 
   script:
     - go build ./...
@@ -53,3 +84,17 @@ docker:
     - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" "$CI_REGISTRY_IMAGE:latest"
     - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
     - docker push "$CI_REGISTRY_IMAGE:latest"
+
+# Scan the image we just pushed: OS packages, the Go binary, misconfig.
+# Fails the pipeline on any CRITICAL vulnerability.
+trivy:
+  stage: scan
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+  script:
+    - trivy image --exit-code 1 --severity CRITICAL --no-progress "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - trivy image --exit-code 0 --severity HIGH --no-progress "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"   # report only

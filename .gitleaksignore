@@ -1,0 +1,6 @@
+# Findings reviewed and accepted. Each entry needs a reason (see SECURITY.md).
+#
+# k6 summary export committed a short-lived access token for the load-test user
+# (15-minute JWT, expired the same day). Token removed from the file and
+# checkout.js no longer writes setup data. The JWT signing secret was not exposed.
+179d39952997746d6453450b11cc150824a298bc:loadtest/results-50.json:jwt:162

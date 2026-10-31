@@ -69,6 +69,29 @@ func handleError(
 
 	case errors.Is(
 		err,
+		services.ErrPaymentProviderUnavailable,
+	):
+		writeError(
+			w,
+			http.StatusServiceUnavailable,
+			"PAYMENT_UNAVAILABLE",
+			"Payments are temporarily unavailable, please try again shortly",
+		)
+
+	case errors.Is(
+		err,
+		services.ErrOrderNotFound,
+	):
+		// Also used for "exists but belongs to someone else", on purpose.
+		writeError(
+			w,
+			http.StatusNotFound,
+			"ORDER_NOT_FOUND",
+			"Order was not found",
+		)
+
+	case errors.Is(
+		err,
 		services.ErrItemNotFound,
 	):
 		writeError(

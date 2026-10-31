@@ -25,3 +25,6 @@ vendor/
 # OS
 .DS_Store
 Thumbs.db
+
+# Webhook lab (cmd/webhook-lab): event log and dead letters
+webhook-lab-data/

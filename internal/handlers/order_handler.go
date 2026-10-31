@@ -49,47 +49,54 @@ func (h *Handler) CreateOrder(
 	// different request and must never replay someone else's order.
 	cacheKey := strconv.Itoa(userID) + ":" + idempotencyKey
 
-	// Hold the lock for the whole request so concurrent retries with the
-	// same key can't create duplicate orders.
+	// The lock only guards the cache map and is held for microseconds at a
+	// time. The slow part (creating the order and calling Xsolla) runs with
+	// no lock held, so requests with different keys run in parallel. An
+	// "in progress" marker still stops duplicate requests with the same key.
+
+	// STEP 1: look up the key and claim it.
 	h.idempotencyMu.Lock()
-	defer h.idempotencyMu.Unlock()
 
-	// Return cached response for the same request.
-	if record, exists :=
-		h.idempotencyCache[cacheKey]; exists {
-
-		if time.Now().Before(record.Expiry) {
-			w.Header().
-				Set(
-					"Content-Type",
-					"application/json",
-				)
-
-			w.WriteHeader(
-				record.StatusCode,
+	if record, exists := h.idempotencyCache[cacheKey]; exists {
+		switch {
+		case record.InProgress:
+			// The same request is still being processed (double-click or a
+			// fast client retry). Don't start a second order.
+			h.idempotencyMu.Unlock()
+			writeError(
+				w,
+				http.StatusConflict,
+				"REQUEST_IN_PROGRESS",
+				"This order is already being processed, please wait",
 			)
+			return
 
-			_, _ =
-				w.Write(
-					record.Response,
-				)
-
+		case time.Now().Before(record.Expiry):
+			// Finished earlier: replay the saved response, no new order.
+			h.idempotencyMu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(record.StatusCode)
+			_, _ = w.Write(record.Response)
 			return
 		}
-
-		delete(
-			h.idempotencyCache,
-			cacheKey,
-		)
+		// Expired: treat it as a new request below.
 	}
 
-	result, err :=
-		h.orderService.CreateOrder(
-			r.Context(),
-			userID,
-		)
+	h.idempotencyCache[cacheKey] = &IdempotencyRecord{InProgress: true}
+	h.idempotencyMu.Unlock()
 
+	// releaseKey removes the in-progress marker after a failure, so the
+	// client can retry with the same key.
+	releaseKey := func() {
+		h.idempotencyMu.Lock()
+		delete(h.idempotencyCache, cacheKey)
+		h.idempotencyMu.Unlock()
+	}
+
+	// STEP 2: the slow work, with no lock held.
+	result, err := h.orderService.CreateOrder(r.Context(), userID)
 	if err != nil {
+		releaseKey()
 		handleError(w, r, err)
 		return
 	}
@@ -98,47 +105,29 @@ func (h *Handler) CreateOrder(
 	// Actual payment confirmation happens later via Xsolla webhook.
 	statusCode := http.StatusCreated
 
-	responseData :=
-		map[string]any{
-			"order":           result.Order,
-			"xsolla_order_id": result.XsollaOrderID,
-			"payment_url":     result.PaymentURL,
-		}
-
-	responseBody, err :=
-		json.Marshal(
-			responseData,
-		)
-
+	responseBody, err := json.Marshal(map[string]any{
+		"order":           result.Order,
+		"xsolla_order_id": result.XsollaOrderID,
+		"payment_url":     result.PaymentURL,
+	})
 	if err != nil {
+		releaseKey()
 		handleError(w, r, err)
 		return
 	}
 
-	h.idempotencyCache[cacheKey] =
-		&IdempotencyRecord{
-			Response:   responseBody,
-			StatusCode: statusCode,
-			Expiry: time.Now().
-				Add(
-					24 * time.Hour,
-				),
-		}
+	// STEP 3: store the finished response for replays.
+	h.idempotencyMu.Lock()
+	h.idempotencyCache[cacheKey] = &IdempotencyRecord{
+		Response:   responseBody,
+		StatusCode: statusCode,
+		Expiry:     time.Now().Add(24 * time.Hour),
+	}
+	h.idempotencyMu.Unlock()
 
-	w.Header().
-		Set(
-			"Content-Type",
-			"application/json",
-		)
-
-	w.WriteHeader(
-		statusCode,
-	)
-
-	_, _ =
-		w.Write(
-			responseBody,
-		)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(responseBody)
 }
 func (h *Handler) GetUserOrders(
 	w http.ResponseWriter,
@@ -343,4 +332,37 @@ func mapUserOrderResponse(
 		Total:  order.Total,
 		Status: order.Status,
 	}
+}
+
+// GetUserOrder godoc
+// @Summary Get one of my orders
+// @Description Returns an order of the logged-in user. Another user's order gives 404, the same as a missing one.
+// @Tags orders
+// @Produce json
+// @Security BearerAuth
+// @Param order_id path int true "Order ID"
+// @Success 200 {object} models.UserOrder
+// @Failure 401 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Router /user/orders/{order_id} [get]
+func (h *Handler) GetUserOrder(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middlewares.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required")
+		return
+	}
+
+	orderID, err := strconv.Atoi(r.PathValue("order_id"))
+	if err != nil || orderID <= 0 {
+		writeError(w, http.StatusNotFound, "ORDER_NOT_FOUND", "Order was not found")
+		return
+	}
+
+	order, err := h.orderService.GetOrderForUser(r.Context(), orderID, userID)
+	if err != nil {
+		handleError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, order)
 }

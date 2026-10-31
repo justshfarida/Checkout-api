@@ -50,6 +50,29 @@ func TestHandler_LoginUser_RefreshCookieLastsSevenDays(t *testing.T) {
 	if !c.HttpOnly {
 		t.Error("refresh cookie must be HttpOnly")
 	}
+	if !c.Secure {
+		t.Error("refresh cookie must be Secure by default")
+	}
+	if c.SameSite != http.SameSiteLaxMode {
+		t.Errorf("refresh cookie SameSite = %v, want Lax", c.SameSite)
+	}
+}
+
+func TestHandler_LoginUser_SecureCookieCanBeDisabledForLocalHTTP(t *testing.T) {
+	auth := &fakeAuthService{authenticateUser: models.User{ID: 1}}
+	token := &fakeTokenService{accessToken: "a", refreshToken: "r", refreshExpiresAt: time.Now().Add(time.Hour)}
+	h := newTestHandler(auth, nil, nil, nil, token)
+	h.SetSecureCookies(false)
+
+	req := httptest.NewRequest(http.MethodPost, "/login",
+		strings.NewReader(`{"email":"a@b.com","password":"password123"}`))
+	w := httptest.NewRecorder()
+	h.Routes().ServeHTTP(w, req)
+
+	c := findCookie(w, "refresh_token")
+	if c == nil || c.Secure {
+		t.Fatalf("cookie = %+v, want Secure=false when disabled", c)
+	}
 }
 
 func TestHandler_Logout(t *testing.T) {
